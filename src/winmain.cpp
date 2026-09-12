@@ -1,0 +1,397 @@
+#include "core.hpp"
+#include "trace_io.hpp"
+#include "win_input.hpp"
+#include "renderer.hpp"
+#include <commdlg.h>
+#include <windowsx.h>
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iomanip>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+
+namespace {
+enum Command : UINT {
+    New=100,Save,Open,Samples,Metrics,Notes,Exit,Pause,Replay,ReplayFast,Stop,Demo,ShowLog,MotionCsv,
+    Raw=200,Filtered,Dots,Fitted,Touch,Mouse,Zoom,Previous,Next,
+    Off=300,Gentle,Steady,Strong,Test0=400,Help=500
+};
+struct NotesDialog { HWND edit{}; bool accepted{}; std::wstring value; };
+LRESULT CALLBACK notesProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam) {
+    auto* dialog=reinterpret_cast<NotesDialog*>(GetWindowLongPtrW(window,GWLP_USERDATA));
+    if(message==WM_NCCREATE) {
+        dialog=static_cast<NotesDialog*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+        SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(dialog));
+    }
+    if(!dialog) return DefWindowProcW(window,message,wParam,lParam);
+    if(message==WM_CREATE) {
+        CreateWindowW(L"STATIC",L"Device / pen model, test speed, guide used, firmware/driver notes:",WS_CHILD|WS_VISIBLE,12,12,540,24,window,nullptr,nullptr,nullptr);
+        dialog->edit=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",dialog->value.c_str(),WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL,12,42,540,155,window,nullptr,nullptr,nullptr);
+        SendMessageW(dialog->edit,EM_SETLIMITTEXT,8000,0);
+        CreateWindowW(L"BUTTON",L"Save notes",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,342,210,100,30,window,reinterpret_cast<HMENU>(IDOK),nullptr,nullptr);
+        CreateWindowW(L"BUTTON",L"Cancel",WS_CHILD|WS_VISIBLE|WS_TABSTOP,452,210,100,30,window,reinterpret_cast<HMENU>(IDCANCEL),nullptr,nullptr);
+        SetFocus(dialog->edit); return 0;
+    }
+    if(message==WM_COMMAND && (LOWORD(wParam)==IDOK || LOWORD(wParam)==IDCANCEL)) {
+        if(LOWORD(wParam)==IDOK) {
+            const int length=GetWindowTextLengthW(dialog->edit);
+            std::wstring text(static_cast<std::size_t>(length)+1,L'\0');
+            GetWindowTextW(dialog->edit,text.data(),length+1); text.resize(static_cast<std::size_t>(length));
+            dialog->value=std::move(text); dialog->accepted=true;
+        }
+        DestroyWindow(window); return 0;
+    }
+    if(message==WM_CLOSE) { DestroyWindow(window); return 0; }
+    return DefWindowProcW(window,message,wParam,lParam);
+}
+bool editNotes(HWND owner,std::string& value) {
+    WNDCLASSW wc{}; wc.lpfnWndProc=notesProc; wc.hInstance=GetModuleHandleW(nullptr);
+    wc.lpszClassName=L"PenTraceNotes"; wc.hCursor=LoadCursorW(nullptr,IDC_ARROW); wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_BTNFACE+1);
+    RegisterClassW(&wc);
+    NotesDialog dialog; dialog.value=widen(value);
+    RECT parent{}; GetWindowRect(owner,&parent);
+    HWND window=CreateWindowExW(WS_EX_DLGMODALFRAME,wc.lpszClassName,L"Recording notes",WS_CAPTION|WS_SYSMENU|WS_POPUP,
+        parent.left+60,parent.top+60,580,290,owner,nullptr,wc.hInstance,&dialog);
+    if(!window) return false;
+    EnableWindow(owner,FALSE); ShowWindow(window,SW_SHOW);
+    MSG msg{};
+    while(IsWindow(window)) {
+        const BOOL result=GetMessageW(&msg,nullptr,0,0);
+        if(result<=0) { if(result==0) PostQuitMessage(static_cast<int>(msg.wParam)); break; }
+        if(!IsDialogMessageW(window,&msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    }
+    if(IsWindow(window)) DestroyWindow(window);
+    EnableWindow(owner,TRUE); SetForegroundWindow(owner);
+    if(dialog.accepted) value=narrow(dialog.value);
+    return dialog.accepted;
+}
+std::filesystem::path chooseFile(HWND window,bool save,bool csv) {
+    std::vector<wchar_t> path(32768);
+    OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog); dialog.hwndOwner=window;
+    dialog.lpstrFile=path.data(); dialog.nMaxFile=static_cast<DWORD>(path.size());
+    dialog.lpstrFilter=csv?L"CSV data (*.csv)\0*.csv\0\0":L"Pen Trace recording (*.pentrace)\0*.pentrace\0\0";
+    dialog.lpstrDefExt=csv?L"csv":L"pentrace";
+    dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
+    const BOOL result=save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog);
+    if(!result) {
+        if(const DWORD error=CommDlgExtendedError()) throw std::runtime_error("File dialog failed: "+std::to_string(error));
+        return {};
+    }
+    return path.data();
+}
+void atomicWrite(const std::filesystem::path& path,const std::function<void(std::ostream&)>& writer) {
+    // Same-directory temporary file. Existing destination remains intact on write failure.
+    wchar_t temporary[MAX_PATH]{};
+    if(!GetTempFileNameW(path.parent_path().c_str(),L"ptl",0,temporary)) throw std::runtime_error("Cannot create temporary output file (check directory/path length).");
+    try {
+        std::ofstream out(std::filesystem::path(temporary),std::ios::binary|std::ios::trunc);
+        if(!out) throw std::runtime_error("Cannot open temporary output file.");
+        writer(out); out.flush();
+        if(!out) throw std::runtime_error("Output flush failed; destination was not replaced.");
+        out.close();
+        if(!out) throw std::runtime_error("Output close failed; destination was not replaced.");
+        if(!MoveFileExW(temporary,path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("Could not replace output file; destination was not changed.");
+    } catch(...) { DeleteFileW(temporary); throw; } // only the exact file created above
+}
+HMENU menus() {
+    HMENU bar=CreateMenu(),session=CreatePopupMenu(),capture=CreatePopupMenu(),view=CreatePopupMenu(),filter=CreatePopupMenu(),test=CreatePopupMenu();
+    auto add=[](HMENU menu,UINT id,const wchar_t* label){AppendMenuW(menu,MF_STRING,id,label);};
+    add(session,New,L"New recording\tCtrl+N"); add(session,Notes,L"Device and test notes...");
+    add(session,Save,L"Save recording...\tCtrl+S"); add(session,Open,L"Open recording...\tCtrl+O");
+    add(session,Samples,L"Export reported samples CSV..."); add(session,Metrics,L"Export per-stroke metrics CSV...");
+    add(session,MotionCsv,L"Export motion / speed CSV...");
+    add(session,ShowLog,L"Recent diagnostic events...");
+    add(session,Demo,L"Load synthetic demonstration"); add(session,Exit,L"Exit");
+    add(capture,Pause,L"Pause / resume live capture\tSpace"); add(capture,Replay,L"Replay recording at 1x");
+    add(capture,ReplayFast,L"Replay recording at 4x"); add(capture,Stop,L"Show full recording / stop replay");
+    add(view,Raw,L"Reported polyline (solid)"); add(view,Filtered,L"Filtered polyline (dashed)"); add(view,Dots,L"Reported sample dots");
+    add(view,Fitted,L"Experimental curve overlay"); add(view,Touch,L"Show finger strokes");
+    add(view,Mouse,L"Capture/show mouse (not a pen test)"); add(view,Zoom,L"Inspection zoom: 1x / 2x / 4x\tZ");
+    add(view,Previous,L"Previous stroke\t["); add(view,Next,L"Next stroke\t]");
+    add(filter,Off,L"Off (baseline)\t0"); add(filter,Gentle,L"Gentle (1.5 DIP displacement cap)\t1");
+    add(filter,Steady,L"Steady\t2"); add(filter,Strong,L"Strong\t3");
+    for(unsigned i=0;i<8;++i) add(test,Test0+i,testName(i));
+    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(session),L"Session");
+    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(capture),L"Capture / replay");
+    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(view),L"View");
+    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(filter),L"Filter");
+    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(test),L"Test"); add(bar,Help,L"Help");
+    return bar;
+}
+class App {
+public:
+    HWND window{}; Renderer renderer; WindowsInput input;
+    pt::Session session; pt::Processor processor; ViewOptions view;
+    bool live{true},dirty{},loaded{},replaying{},ready{};
+    std::size_t cursor{}; double replayStart{},replayOrigin{},speed{1};
+    std::wstring notice;
+    App():input([this](const pt::Sample& s){sample(s);},[this](double t,DWORD code,const std::string& text){log(t,code,text);}) {}
+    void log(double t,DWORD code,const std::string& text) {
+        if(!live) return;
+        if(session.events.size()<pt::maxEvents) session.events.push_back({t,code,text});
+        notice=widen(text); dirty=true;
+    }
+    void sample(const pt::Sample& s) {
+        if(!live || loaded || view.zoom!=1 || (s.kind==pt::Kind::Mouse && !view.mouse)) return;
+        if(session.samples.size()>=pt::maxSamples) { live=false; notice=L"Recording limit reached. Save, then start a new session."; return; }
+        session.samples.push_back(s); processor.consume(s); dirty=true;
+        if(s.contact && s.eligible) view.selected=static_cast<std::size_t>(-1);
+    }
+    void pause() { input.cancelAll("Capture paused; active strokes ended as canceled."); live=false; }
+    void rebuild() {
+        processor.clear(); for(const auto& s:session.samples) processor.consume(s);
+        renderer.invalidateCache(); view.selected=static_cast<std::size_t>(-1);
+    }
+    bool save() {
+        pause(); const auto path=chooseFile(window,true,false); if(path.empty()) return false;
+        atomicWrite(path,[&](std::ostream& out){pt::writeTrace(out,session);});
+        dirty=false; notice=L"Recording saved: "+path.filename().wstring(); return true;
+    }
+    bool mayDiscard() {
+        pause(); if(!dirty) return true;
+        const int answer=MessageBoxW(window,L"Save this recording before continuing?",L"Unsaved recording",MB_YESNOCANCEL|MB_ICONQUESTION);
+        if(answer==IDCANCEL) return false;
+        return answer==IDNO || save();
+    }
+    void updateLayout() {
+        const auto l=renderer.layout(); input.setCanvas(l.left,l.top,l.right,l.bottom);
+    }
+    void recordEnvironment() {
+        SYSTEM_INFO info{}; GetNativeSystemInfo(&info);
+        const auto l=renderer.layout();
+        log(input.now(),0,input.clockDescription());
+        log(input.now(),0,"Environment: native processor architecture="+std::to_string(info.wProcessorArchitecture)+
+            "; window DPI="+std::to_string(GetDpiForWindow(window))+"; canvas DIP width="+std::to_string(l.right-l.left)+
+            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.1.0; test="+narrow(testName(view.test)));
+    }
+    void refreshMenus() {
+        const HMENU menu=GetMenu(window);
+        auto check=[&](UINT id,bool on){CheckMenuItem(menu,id,MF_BYCOMMAND|(on?MF_CHECKED:MF_UNCHECKED));};
+        check(Raw,view.raw); check(Filtered,view.filtered); check(Dots,view.dots); check(Fitted,view.fitted);
+        check(Touch,view.touch); check(Mouse,view.mouse); check(Pause,!live);
+        CheckMenuRadioItem(menu,Off,Strong,Off+static_cast<UINT>(view.mode),MF_BYCOMMAND);
+        CheckMenuRadioItem(menu,Test0,Test0+7,Test0+view.test,MF_BYCOMMAND);
+    }
+    void command(UINT id) {
+        if(id>=Off && id<=Strong) view.mode=static_cast<pt::Mode>(id-Off);
+        else if(id>=Test0 && id<Test0+8) {
+            input.cancelAll("Test changed."); view.test=id-Test0;
+            log(input.now(),0,"Test: "+narrow(testName(view.test)));
+        } else switch(id) {
+        case New:
+            if(!mayDiscard()) break;
+            session={}; processor.clear(); renderer.invalidateCache(); loaded=false; replaying=false;
+            view.zoom=1; view.selected=static_cast<std::size_t>(-1); live=true; dirty=false; notice=L"New recording. Add device/pen details under Session > Notes.";
+            session.metadata="Pen Trace Lab 0.1.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            recordEnvironment();
+            break;
+        case Save: save(); break;
+        case Open: {
+            pause(); const auto path=chooseFile(window,false,false); if(path.empty()) break;
+            std::ifstream in(path,std::ios::binary); if(!in) throw std::runtime_error("Cannot open recording.");
+            auto candidate=pt::readTrace(in); // validate fully before replacing current work
+            if(!mayDiscard()) break;
+            session=std::move(candidate); loaded=true; dirty=false; replaying=false; view.zoom=1;
+            rebuild(); notice=L"Loaded recording (read-only input). New recording to draw again."; break;
+        }
+        case Samples: case Metrics: case MotionCsv: {
+            pause(); const auto path=chooseFile(window,true,true); if(path.empty()) break;
+            if(id==Samples) atomicWrite(path,[&](std::ostream& out){pt::writeSamplesCsv(out,session);});
+            else {
+                pt::Processor full; for(const auto& s:session.samples) full.consume(s);
+                atomicWrite(path,[&](std::ostream& out){
+                    if(id==MotionCsv) pt::writeMotionCsv(out,full,view.mode);
+                    else pt::writeMetricsCsv(out,full,view.mode);
+                });
+            }
+            notice=L"CSV exported. Full original recording remains available."; break;
+        }
+        case Notes:
+            pause(); if(editNotes(window,session.metadata)) dirty=true; break;
+        case ShowLog: {
+            pause(); std::wostringstream text;
+            text<<L"Last 20 events. The complete log is retained in .pentrace files.\n\n";
+            const auto first=session.events.size()>20?session.events.size()-20:0;
+            for(std::size_t i=first;i<session.events.size();++i) {
+                const auto& e=session.events[i]; text<<std::fixed<<std::setprecision(3)<<e.time<<L"s ["<<e.code<<L"] "<<widen(e.text)<<L"\n";
+            }
+            MessageBoxW(window,text.str().c_str(),L"Diagnostic events",MB_OK|MB_ICONINFORMATION); break;
+        }
+        case Exit: SendMessageW(window,WM_CLOSE,0,0); break;
+        case Pause:
+            if(live) pause();
+            else if(loaded) notice=L"Loaded/demo data is read-only. Start a new recording to draw.";
+            else if(view.zoom!=1) notice=L"Return inspection zoom to 1x before resuming capture.";
+            else { if(replaying) { replaying=false; rebuild(); } live=true; notice=L"Live capture resumed."; }
+            break;
+        case Replay: case ReplayFast:
+            pause(); if(session.samples.empty()) break;
+            cursor=0; processor.clear(); renderer.invalidateCache(); replaying=true;
+            speed=id==Replay?1:4; replayStart=input.now(); replayOrigin=session.samples.front().receipt; break;
+        case Stop:
+            pause(); replaying=false; rebuild(); break;
+        case Demo:
+            if(!mayDiscard()) break;
+            session={}; session.metadata="SYNTHETIC DEMO: artificial 12 Hz diagonal noise, not a hardware measurement.";
+            for(unsigned i=0;i<=720;++i) {
+                const double t=i/240.0,noise=1.5*std::sin(t*2*3.141592653589793*12);
+                pt::Sample s; s.sequence=i+1; s.pointer=1; s.device=1; s.frame=i; s.qpc=i+1;
+                s.clock=pt::Clock::Qpc; s.time=s.receipt=t; s.contact=i<720; s.down=i==0; s.up=i==720;
+                s.p={70+140*t-noise,60+100*t+noise}; s.pressure=512; s.mask=1;
+                session.samples.push_back(s);
+            }
+            loaded=true; dirty=false; replaying=false; view.zoom=1; rebuild(); notice=L"Synthetic demonstration — not real pen data."; break;
+        case Raw: view.raw=!view.raw; break;
+        case Filtered: view.filtered=!view.filtered; break;
+        case Dots: view.dots=!view.dots; break;
+        case Fitted: view.fitted=!view.fitted; break;
+        case Touch: view.touch=!view.touch; break;
+        case Mouse: input.cancelAll("Mouse capture setting changed."); view.mouse=!view.mouse; break;
+        case Zoom: pause(); view.zoom=view.zoom==1?2:view.zoom==2?4:1; break;
+        case Previous: case Next: {
+            const auto n=processor.strokes().size(); if(!n) break;
+            const auto selected=std::min(view.selected,n-1);
+            view.selected=id==Previous?(selected?selected-1:0):std::min(selected+1,n-1); break;
+        }
+        case Help:
+            pause();
+            MessageBoxW(window,L"Start with Filter > Off. Draw the same test slowly, normally, and quickly.\n\n"
+                L"Session > Notes: enter device, pen, speed and guide details.\n"
+                L"Save .pentrace to preserve all recorded reports, including hover/up and duplicates.\n"
+                L"Replay and change filters to compare identical strokes. CSV exports are for analysis.\n\n"
+                L"Solid blue = reported pen; green = touch; dashed orange = filtered; purple = curve.\n"
+                L"Choose filter 1-3 to see both paths. Off paths coincide and are drawn once.\n"
+                L"Motion CSV includes speed and X/Y velocity, derived from valid report intervals.\n"
+                L"Mouse capture is opt-in. Touch remains recorded when hidden.\n"
+                L"Zoom is inspection-only and pauses capture. Space resumes at 1x.\n\n"
+                L"Mouse wheel / Page Up / Page Down scroll the statistics sidebar.\n\n"
+                L"Straightness is meaningful only for intended straight lines. These are Windows reports,\n"
+                L"not electrical sensor signals. This app cannot separate hand movement from device error.\n"
+                L"No prediction, no auto-straightening, no pressure-shaped brush.\n\n"
+                L"All data stays local. No drivers, system settings or hardware are modified.\n"
+                L"See docs/TESTING.md and docs/DESIGN.md for limits and acceptance checks.",L"Pen Trace Lab",MB_OK|MB_ICONINFORMATION); break;
+        default: break;
+        }
+        refreshMenus(); InvalidateRect(window,nullptr,FALSE);
+    }
+    LRESULT handle(UINT message,WPARAM wParam,LPARAM lParam) {
+        if(ready && input.handle(window,message,wParam,lParam)) return 0;
+        switch(message) {
+        case WM_CREATE:
+            if(FAILED(renderer.initialize(window))) return -1;
+            ready=true; SetMenu(window,menus()); updateLayout();
+            if(!EnableMouseInPointer(TRUE)) notice=L"Mouse-as-pointer unavailable; pen/touch capture still enabled.";
+            session.metadata="Pen Trace Lab 0.1.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            recordEnvironment();
+            SetTimer(window,1,16,nullptr); refreshMenus(); return 0;
+        case WM_TIMER:
+        {
+            const bool advancing=replaying;
+            if(replaying) {
+                const double until=replayOrigin+(input.now()-replayStart)*speed;
+                unsigned budget=10000;
+                while(cursor<session.samples.size() && session.samples[cursor].receipt<=until && budget--) processor.consume(session.samples[cursor++]);
+                if(cursor==session.samples.size()) { replaying=false; notice=L"Replay complete. Original reports unchanged."; }
+            }
+            if(live || advancing) InvalidateRect(window,nullptr,FALSE);
+            return 0;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps{}; BeginPaint(window,&ps);
+            HRESULT result=S_OK;
+            try {
+                std::wostringstream status;
+                status<<(replaying?L"REPLAY":live?L"LIVE":L"PAUSED")<<L" | "<<session.samples.size()<<L" reports | "<<view.zoom<<L"x | "<<session.events.size()<<L" log events";
+                status<<L" | paint call "<<std::fixed<<std::setprecision(1)<<renderer.lastPaintMs()<<L" ms (not pen latency)";
+                if(!notice.empty()) status<<L" | "<<notice;
+                result=renderer.paint(processor,view,status.str(),widen(session.metadata));
+            } catch(...) { EndPaint(window,&ps); throw; }
+            EndPaint(window,&ps);
+            if(result==D2DERR_RECREATE_TARGET) InvalidateRect(window,nullptr,FALSE);
+            if(FAILED(result) && result!=D2DERR_RECREATE_TARGET) notice=L"Renderer failed; recording can still be saved.";
+            return 0;
+        }
+        case WM_SIZE:
+            if(ready) { input.cancelAll("Window resized; active strokes canceled to avoid coordinate jumps."); renderer.resize(); updateLayout(); }
+            InvalidateRect(window,nullptr,FALSE); return 0;
+        case WM_ENTERSIZEMOVE: input.cancelAll("Window move/resize began."); return 0;
+        case WM_DPICHANGED: {
+            input.cancelAll("Display DPI changed.");
+            const auto* r=reinterpret_cast<RECT*>(lParam);
+            SetWindowPos(window,nullptr,r->left,r->top,r->right-r->left,r->bottom-r->top,SWP_NOZORDER|SWP_NOACTIVATE);
+            renderer.resize(); updateLayout(); return 0;
+        }
+        case WM_DISPLAYCHANGE: input.cancelAll("Display configuration changed."); updateLayout(); return 0;
+        case WM_DEVICECHANGE: input.cancelAll("Device configuration changed."); return 0;
+        case WM_GETMINMAXINFO: {
+            auto* info=reinterpret_cast<MINMAXINFO*>(lParam);
+            const UINT dpi=GetDpiForWindow(window);
+            info->ptMinTrackSize={MulDiv(900,static_cast<int>(dpi?dpi:96),96),MulDiv(600,static_cast<int>(dpi?dpi:96),96)};
+            return 0;
+        }
+        case WM_MOUSEWHEEL: case WM_POINTERWHEEL:
+            view.sidebarScroll=std::clamp(view.sidebarScroll-GET_WHEEL_DELTA_WPARAM(wParam)/120.0f*48,0.0f,500.0f);
+            InvalidateRect(window,nullptr,FALSE); return 0;
+        case WM_COMMAND: command(LOWORD(wParam)); return 0;
+        case WM_KEYDOWN: {
+            const bool ctrl=(GetKeyState(VK_CONTROL)&0x8000)!=0;
+            if(ctrl && wParam=='S') command(Save);
+            else if(ctrl && wParam=='O') command(Open);
+            else if(ctrl && wParam=='N') command(New);
+            else if(wParam==VK_SPACE) command(Pause);
+            else if(wParam>='0' && wParam<='3') command(Off+static_cast<UINT>(wParam-'0'));
+            else if(wParam=='Z') command(Zoom);
+            else if(wParam==VK_OEM_4) command(Previous);
+            else if(wParam==VK_OEM_6) command(Next);
+            else if(wParam==VK_F1) command(Help);
+            else if(wParam==VK_NEXT || wParam==VK_PRIOR) {
+                view.sidebarScroll=std::clamp(view.sidebarScroll+(wParam==VK_NEXT?100.0f:-100.0f),0.0f,500.0f);
+                InvalidateRect(window,nullptr,FALSE);
+            }
+            return 0;
+        }
+        case WM_ERASEBKGND: return 1;
+        case WM_CLOSE: if(mayDiscard()) DestroyWindow(window); return 0;
+        case WM_DESTROY: KillTimer(window,1); PostQuitMessage(0); return 0;
+        default: return DefWindowProcW(window,message,wParam,lParam);
+        }
+    }
+};
+LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam) {
+    auto* app=reinterpret_cast<App*>(GetWindowLongPtrW(window,GWLP_USERDATA));
+    if(message==WM_NCCREATE) {
+        app=static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+        app->window=window; SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(app));
+    }
+    if(!app) return DefWindowProcW(window,message,wParam,lParam);
+    try { return app->handle(message,wParam,lParam); }
+    catch(const std::exception& e) {
+        app->live=false;
+        MessageBoxW(window,widen(e.what()).c_str(),L"Pen Trace Lab — operation failed",MB_OK|MB_ICONERROR);
+        return message==WM_CREATE?-1:0;
+    }
+}
+}
+int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show) {
+    const HRESULT com=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+    App app;
+    WNDCLASSW wc{}; wc.lpfnWndProc=windowProc; wc.hInstance=instance;
+    wc.lpszClassName=L"PenTraceLabMain"; wc.hCursor=LoadCursorW(nullptr,IDC_CROSS);
+    if(!RegisterClassW(&wc)) { if(SUCCEEDED(com)) CoUninitialize(); return 1; }
+    RECT work{0,0,1280,900}; SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
+    const auto dpi=static_cast<int>(GetDpiForSystem());
+    const int width=std::min(MulDiv(1200,dpi,96),static_cast<int>(work.right-work.left)-32);
+    const int height=std::min(MulDiv(850,dpi,96),static_cast<int>(work.bottom-work.top)-32);
+    HWND window=CreateWindowExW(0,wc.lpszClassName,L"Pen Trace Lab",WS_OVERLAPPEDWINDOW,work.left+16,work.top+16,width,height,nullptr,nullptr,instance,&app);
+    if(!window) { MessageBoxW(nullptr,L"Could not initialize Pen Trace Lab.",L"Startup error",MB_OK|MB_ICONERROR); if(SUCCEEDED(com)) CoUninitialize(); return 1; }
+    ShowWindow(window,show); UpdateWindow(window);
+    MSG msg{}; BOOL result;
+    while((result=GetMessageW(&msg,nullptr,0,0))>0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    if(SUCCEEDED(com)) CoUninitialize();
+    return result<0?1:static_cast<int>(msg.wParam);
+}

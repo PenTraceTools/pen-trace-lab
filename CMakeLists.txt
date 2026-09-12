@@ -1,0 +1,42 @@
+cmake_minimum_required(VERSION 3.24)
+project(PenTraceLab VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+add_library(pentrace_core src/core.cpp src/trace_io.cpp)
+target_include_directories(pentrace_core PUBLIC src)
+if(MSVC)
+  target_compile_options(pentrace_core PRIVATE /W4 /permissive- /utf-8)
+else()
+  target_compile_options(pentrace_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(pentrace_tests tests/core_tests.cpp)
+  target_link_libraries(pentrace_tests PRIVATE pentrace_core)
+  add_test(NAME core COMMAND pentrace_tests)
+endif()
+
+if(WIN32)
+  enable_language(RC)
+  add_executable(PenTraceLab WIN32 src/winmain.cpp src/win_input.cpp src/renderer.cpp resources/app.rc)
+  target_include_directories(PenTraceLab PRIVATE resources)
+  target_compile_definitions(PenTraceLab PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+  target_link_libraries(PenTraceLab PRIVATE pentrace_core d2d1 dwrite comdlg32 user32 gdi32 ole32)
+  if(MSVC)
+    target_compile_options(PenTraceLab PRIVATE
+      $<$<COMPILE_LANGUAGE:CXX>:/W4>
+      $<$<COMPILE_LANGUAGE:CXX>:/permissive->
+      $<$<COMPILE_LANGUAGE:CXX>:/utf-8>)
+    target_link_options(PenTraceLab PRIVATE /MANIFEST:NO)
+  endif()
+  install(TARGETS PenTraceLab RUNTIME DESTINATION .)
+  install(FILES README.md LICENSE DESTINATION .)
+  install(DIRECTORY docs DESTINATION .)
+endif()
