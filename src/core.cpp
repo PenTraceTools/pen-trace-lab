@@ -113,17 +113,17 @@ std::vector<Vec> localFilter(const Stroke& stroke,double radius,double cap,doubl
         throw std::invalid_argument("Invalid local filter settings");
     const auto raw=rawPath(stroke);
     const auto movement=motion(stroke,raw);
-    pen_stabilizer::Stabilizer filter;
-    filter.reset({true,radius,window,cap});
+    std::vector<pen_stabilizer::Sample> input; input.reserve(raw.size());
+    std::vector<bool> continuous; continuous.reserve(raw.size());
     for(std::size_t i=0;i<stroke.points.size();++i) {
         const auto& s=stroke.points[i];
         // Clock, identity and transform provenance remain the host's concern.
-        if(!filter.append({{s.p.x,s.p.y},s.time,1},i==0 || movement[i].valid()))
-            throw std::invalid_argument("Invalid sample passed to local filter");
+        input.push_back({{s.p.x,s.p.y},s.time,1});
+        continuous.push_back(i==0 || movement[i].valid());
     }
-    filter.finish(); // No extra correction at lift; identical production core.
+    const auto filtered=pen_stabilizer::Stabilizer::filterBatch(input,continuous,{true,radius,window,cap});
     std::vector<Vec> out; out.reserve(raw.size());
-    for(const auto p:filter.positions()) out.push_back({p.x,p.y});
+    for(const auto p:filtered) out.push_back({p.x,p.y});
     return out;
 }
 static double percentile(std::vector<double> v,double q) {

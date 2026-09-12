@@ -32,8 +32,9 @@ Library CI independently compares its output to pinned PenTraceLab 0.4.0 source
 at commit `ef6555a6defd12b8dde5afc408df4975eb4492b2`. Do not replace that oracle
 with a checkout that calls the shared core: that would compare code to itself.
 
-The current diagnostic adapter replays each requested stroke through the core;
-live rendering already caches completed comparisons but still recomputes active
-stroke comparisons. High-rate long-stroke performance and physical-pen acceptance
+The diagnostic adapter uses the core\'s efficient batch entry point, evaluating
+the same position math once per output point rather than replaying every
+intermediate tail. Completed comparisons are cached; active stroke comparisons
+are still recomputed. High-rate long-stroke performance and physical-pen acceptance
 need measurement. Pure-core tests do not establish GUI latency or hardware
 accuracy. The executable is built by CI/on the build PC, not this development PC.
