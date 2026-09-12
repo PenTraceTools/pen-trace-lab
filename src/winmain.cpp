@@ -105,14 +105,14 @@ HMENU menus() {
     auto add=[](HMENU menu,UINT id,const wchar_t* label){AppendMenuW(menu,MF_STRING,id,label);};
     add(session,New,L"New recording\tCtrl+N"); add(session,Notes,L"Device and test notes...");
     add(session,Save,L"Save recording...\tCtrl+S"); add(session,Open,L"Open recording...\tCtrl+O");
-    add(session,Samples,L"Export reported samples CSV..."); add(session,Metrics,L"Export per-stroke metrics CSV...");
-    add(session,MotionCsv,L"Export motion / speed CSV...");
+    add(session,Samples,L"Export reported samples CSV..."); add(session,Metrics,L"Export legacy per-stroke metrics CSV...");
+    add(session,MotionCsv,L"Export legacy motion / speed CSV...");
     add(session,ShowLog,L"Recent diagnostic events...");
     add(session,Exit,L"Exit");
     add(capture,Pause,L"Pause / resume live capture\tSpace"); add(capture,Replay,L"Replay recording at 1x");
     add(capture,ReplayFast,L"Replay recording at 4x"); add(capture,Stop,L"Show full recording / stop replay");
     add(view,Raw,L"Reported polyline (solid)"); add(view,Filtered,L"Filtered polyline (dashed)"); add(view,Dots,L"Reported sample dots");
-    add(view,Fitted,L"Experimental curve overlay"); add(view,Touch,L"Show finger strokes");
+    add(view,Fitted,L"Legacy experimental curve overlay"); add(view,Touch,L"Show finger strokes");
     add(view,Mouse,L"Capture/show mouse (not a pen test)"); add(view,Zoom,L"Inspection zoom: 1x / 2x / 4x\tZ");
     add(view,Previous,L"Previous stroke\t["); add(view,Next,L"Next stroke\t]");
     add(view,SelectedOnly,L"Show only selected stroke (keeps all data)");

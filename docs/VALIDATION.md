@@ -5,11 +5,25 @@
 Implementation adds six independent candidates, equal-scale comparison panels,
 explicit x8 displacement inspection, adjustable local support, multiscale shape
 and lag proxies, versioned settings and all-candidate/sweep CSVs. Core tests add
-comparison invariants and exports. At this entry's creation, source review is in
-progress and this revision has not yet passed CI; results will be appended below.
+comparison invariants and exports. Commit b0bd84c passed GitHub run
+[34715977560](https://github.com/alexiokay/pen-trace-lab/actions/runs/34715977560):
+Linux ASan/UBSan core tests and Windows x64/ARM64 builds with host-x64 tests.
+All 14 core test groups passed; no C++ compiler warnings were found in the logs.
+Minor menu-label/documentation and additional gap-regression follow-ups require
+their own passing run before the final portable package is delivered.
 No local build or prerequisite installation is authorized or performed. A new
 portable version will not replace the user's older app folders or recordings.
 Real-device GUI/feel acceptance remains a separate user test.
+
+The downloaded ARM64 analyzer executed on three existing local recordings
+(18, 18 and 27 strokes). All 441 default comparison rows were generated;
+all raw valid-motion checks had zero invalid intervals, and candidate 2 retained
+zero endpoint displacement in every stroke. A 26-candidate-plus-raw sweep on
+the 27-stroke session produced 729 rows. SHA-256 checks before/after matched for
+all three source files. No recording was uploaded. Default analysis of the
+largest recording took approximately 0.77 seconds in one console run; this is
+not a live paint benchmark or latency measurement. See
+[COMPARISON_RESULTS.md](COMPARISON_RESULTS.md) for measured trade-offs.
 
 ## Version 0.2 update (supersedes initial status below)
 

@@ -278,6 +278,7 @@ void comparisonAlgorithms() {
     const auto raw=pt::filter(s,pt::Mode::Off);
     const auto catalog=pt::candidates();
     const auto all=pt::compareAll(s);
+    require(all[0].path==pt::filter(s,pt::Mode::Steady),"40 ms control changed from legacy Steady");
     for(unsigned k=0;k<pt::candidateCount;++k) {
         const auto& c=all[k];
         require(c.available && c.path.size()==raw.size(),"Candidate unavailable or changed point count");
@@ -291,7 +292,7 @@ void comparisonAlgorithms() {
             require(pt::length(transformed[i]-pt::Vec{-c.path[i].y+300,c.path[i].x-700})<1e-6,"Candidate is not rotation/translation invariant");
         auto prefix=s; prefix.points.resize(400); prefix.ended=false;
         const auto partial=pt::compare(prefix,catalog[k],false);
-        if(k==5) { require(!partial.available,"Offline algorithm leaked into live preview"); continue; }
+        if(k==5) require(!partial.available,"Offline algorithm leaked into live preview");
         for(std::size_t i=0;i<partial.path.size();++i)
             if(catalog[k].algorithm!=pt::Algorithm::Local || prefix.points[i].time<prefix.points.back().time-catalog[k].window-.001)
                 require(pt::length(partial.path[i]-c.path[i])<1e-8,"Candidate revised a finalized/causal point");
@@ -300,6 +301,14 @@ void comparisonAlgorithms() {
         require(isolated[100]==raw[100] && isolated[101]==raw[101],"Candidate state crossed mapping boundary");
         auto unknown=s; for(auto& p:unknown.points) p.clock=pt::Clock::ReceiptFallback;
         require(pt::compare(unknown,catalog[k],false).path==raw,"Untrusted timing drove filtering");
+        auto gap=s;
+        for(std::size_t i=100;i<gap.points.size();++i) gap.points[i].time+=.1;
+        const auto gapResult=pt::compare(gap,catalog[k]);
+        require(gapResult.path[100]==raw[100] && !gapResult.variation[1].samples,"Candidate crossed a time gap or scored disconnected shape");
+        auto suffix=gap; suffix.points.erase(suffix.points.begin(),suffix.points.begin()+100);
+        const auto suffixResult=pt::compare(suffix,catalog[k],false);
+        for(std::size_t i=0;i<suffixResult.path.size();++i)
+            require(pt::length(gapResult.path[i+100]-suffixResult.path[i])<1e-8,"State leaked across time gap");
     }
     s.canceled=true;
     require(!pt::compare(s,catalog[5]).available,"Canceled stroke accepted by offline smoother");

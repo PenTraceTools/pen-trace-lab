@@ -14,8 +14,8 @@ dashes are the candidate. Each panel uses identical raw bounds and scale.
 1–6 selects the candidate for C (normal overlay) or D (difference x8). D displays
 `raw + 8 * (candidate - raw)` and explicitly exaggerates offsets; all statistics
 and exports still use actual candidate coordinates. Z zooms around the stroke
-centre. Grid, difference and zoom pause capture. Use Space to resume a live
-recording at 1x; loaded recordings require Ctrl+N before drawing new data.
+centre. Grid, difference and zoom pause capture. Return Z to 1x, then use Space
+to resume a live recording; loaded recordings require Ctrl+N before drawing new data.
 
 All six candidates are independently evaluated for the selected stroke; all
 strokes are evaluated in comparison exports. They are not cascaded. Live paths
