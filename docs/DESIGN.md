@@ -226,3 +226,9 @@ its fixture or certification. The app does not issue a Windows compliance verdic
 There is no guaranteed algorithm for complete noise removal with perfect intent
 preservation. Device/driver investigation may be necessary when baseline input
 cannot meet the user's tolerance without distorting deliberate detail.
+# Version 0.3 comparison extension
+
+See [COMPARISON.md](COMPARISON.md) for the implemented independent algorithms,
+execution constraints, settings provenance, inspection views and metric limits.
+The existing input/normalization pipeline is unchanged. Earlier filter sections
+below describe the legacy presets retained for controlled comparisons.

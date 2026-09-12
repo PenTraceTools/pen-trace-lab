@@ -122,3 +122,22 @@ brush renderer, persistence or networking; those are a later integration stage.
 
 Neither a particular noise-reduction percentage nor a perfectly straight fitted
 line establishes that the true intended freehand path was recovered.
+# Version 0.3 comparison acceptance
+
+Core regression tests additionally cover all six candidates' independence,
+source immutability, displacement bounds, rotation/translation, causal-prefix
+invariance, local revision horizon, offline availability, clock/mapping isolation,
+stationary input, straight-line lag and endpoint trade-offs, controlled slow-wave
+smoothing, raw loop-area identity, settings round-trip and CSV column coverage.
+Synthetic cases are algorithm invariants, not substitutes for real pen tests.
+
+On the drawing PC, open a saved trace and check G (six equal-scale panels),
+1–6 selection, [ / ] stroke navigation, D (explicit x8 warning), C/O overlays,
+Z zoom and sidebar scrolling. Confirm each CSV's settings match the menu and
+that reopening restores candidate 2's settings. Check canceled/unfinished
+strokes mark offline smoothing unavailable. Ctrl+N starts new real input.
+
+Record slow/normal/fast diagonals and axes, then curves, loops, writing, V/W
+corners, dots and lifts. Compare smoothing AND changes to shape/endpoints; test
+live latency/revisions separately. See [COMPARISON.md](COMPARISON.md). A GUI build
+or offline metric improvement does not establish good physical pen feel.

@@ -4,9 +4,9 @@ A small native Windows pen/touch recorder and drawing diagnostic. Compare the
 positions Windows reports with filtered polylines and an experimental curve
 renderer, using the **same recorded stroke** for every comparison.
 
-**Status: experimental diagnostic, version 0.2.0.** The initial ARM64 version was
-used to collect a real pen recording. This revision addresses its clock-handling
-findings and replaces the lagging comparison filters. See [VALIDATION.md](docs/VALIDATION.md)
+**Status: experimental diagnostic, version 0.3.0.** Six independent candidates
+can now be compared against identical real pen input, with a side-by-side grid,
+exaggerated difference inspection and parameter-sweep exports. See [VALIDATION.md](docs/VALIDATION.md)
 for verification boundaries. No hardware-accuracy or complete wobble-removal claim.
 
 ## Features
@@ -17,7 +17,10 @@ for verification boundaries. No hardware-accuracy or complete wobble-removal cla
 - Reported coordinates, timestamp source, pressure/tilt validity, pointer/device
   identity, contact state and coordinate-mapping context retained in recordings.
 - Distinct pen/finger strokes; no positional filtering in the initial baseline.
-- Off is exact. Gentle, Steady and Strong use local sideways smoothing, with
+- Raw is exact. Six independent comparison candidates run on original samples,
+  never on one another's output. Only the selected stroke's paths are previewed;
+  comparison exports evaluate every stroke. See [COMPARISON.md](docs/COMPARISON.md).
+- Legacy Gentle, Steady and Strong use local sideways smoothing, with
   displacement caps of 1.5, 2.5 and 4 DIPs. Endpoints stay measured. The newest
   40 ms may revise as input arrives; this is not a causal, final-ink algorithm.
 - Straightness RMS/P95/max, filter displacement, interval statistics, endpoint
@@ -53,23 +56,29 @@ installs prerequisites. Extract the ZIP and run `PenTraceLab.exe` on the target.
 1. Open **Session > Device and test notes**. Enter device, pen, test speed and
    whether a physical guide was used. Notes editing pauses capture; press Space
    afterward to resume.
-2. Leave **Filter > Off**. Choose **Real-pen tests > Diagonal down**, then draw slowly in
+2. Leave the default comparison view (raw is always retained). Choose **Real-pen tests > Diagonal down**, then draw slowly in
    both directions. Repeat at normal/fast speed and different screen positions.
 3. Also record horizontal/vertical lines, shallow curves, corners, small writing,
    dots and pen lifts. Use separate files or notes to identify trials.
 4. Pause and save a `.pentrace` recording. Saving pauses capture intentionally.
-5. Compare filters or use **Capture / replay**. Original reports are unchanged.
-   Enable **View > Reported sample dots** and inspection zoom for close analysis.
-6. Export sample CSV for report-level analysis, metric CSV for per-stroke summaries,
-   and **motion / speed CSV** for reported-versus-filtered velocity at each retained
-   contact point. Exports use the full recording and currently selected filter.
+5. Press **G** for all six candidates side by side, **1–6** to select one, and
+   **D** to exaggerate its displacement by 8x. D is a diagnostic view, not the
+   actual filtered path. Use `[` / `]` to choose a stroke. **C** restores the
+   selected-candidate view; **Space** resumes a non-loaded recording.
+6. **Compare > Export all-algorithm summary** reports smoothing and shape/lag
+   trade-offs for the full recording. **Paths** exports every candidate's points;
+   **parameter sweep** evaluates 26 settings plus raw. Session's original metrics
+   and motion exports remain **legacy preset** exports, not candidate exports.
    CSV is an analysis subset; `.pentrace`
    retains the full captured fields and event log.
 
-Solid blue is reported pen, green is finger input, **dashed orange** is filtered
-position and purple is the optional curve experiment. Select filter 1–3 with both
-View layers enabled to compare the two paths. With Off, the paths coincide and
-are shown once. Dashes are visual styling only; no source points are removed.
+Solid blue is reported pen, green is finger input, **coloured dashed** is a
+comparison candidate. **O** overlays all candidates on the selected stroke;
+**G** separates them into six panels at the same scale. Candidate 2 defaults to
+a 120 ms local revision window; its radius, window and displacement cap can be
+changed under Compare. These are experimental settings, not a proven best preset.
+The optional purple curve and old filters remain under Legacy filters.
+Dashes are visual styling only; no source points are removed.
 Mouse recording/display is opt-in.
 Grey dashed shapes are **targets for you to trace**, not generated pen strokes.
 F2 selects the next real-pen test; F3 changes the intended pace label. These
@@ -78,7 +87,8 @@ Use View > Show only selected stroke to inspect overlapping trials without delet
 Hiding finger strokes does not stop their recording. The last 100 strokes plus
 the selected stroke are drawn; all recorded strokes remain available for export.
 
-Keys: Space pause/resume, 0–3 filter, `[`/`]` selected stroke, Z inspection zoom,
+Keys: Space pause/resume, 1–6 candidate, G grid, D difference x8, C selected view,
+O all overlays, 0 legacy raw-only, `[`/`]` selected stroke, Z inspection zoom,
 Ctrl+S save, Ctrl+O open, Ctrl+N new, F1 help. Mouse wheel or Page Up/Down scrolls
 the statistics sidebar. Session > Recent diagnostic events shows the latest log
 entries. Zoom pauses capture and must return
@@ -107,10 +117,13 @@ opening/replaying it. The sidebar shows recovered-clock counts. A clock offset
 between report and receipt is not an input-latency measurement.
 
 The portable package also includes a read-only console analyzer:
-`pentrace_analyze.exe recording.pentrace`. It runs the same filters/metrics as
-the GUI and prints a comparison without opening a window or modifying the file.
+`pentrace_analyze.exe recording.pentrace [--compare|--paths|--sweep|--legacy]`.
+Default output is all-candidate summary CSV. It runs the same algorithms as the
+GUI without opening a window or modifying the file. Settings are restored from
+the last valid comparison event; old recordings use documented 0.3 defaults.
 
 - [Architecture, findings and electrical/HID limitations](docs/DESIGN.md)
+- [Comparison algorithms, metrics and testing workflow](docs/COMPARISON.md)
 - [Independent trackers, magnetic overlays and correction-layer feasibility](docs/INDEPENDENT_TRACKING.md)
 - [Recording format and field semantics](docs/RECORDING_FORMAT.md)
 - [Tests and physical-device acceptance checklist](docs/TESTING.md)

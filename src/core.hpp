@@ -111,6 +111,9 @@ struct Motion {
 const char* motionStatusName(MotionStatus status);
 std::vector<Motion> motion(const Stroke& stroke,const std::vector<Vec>& path);
 std::vector<Vec> filter(const Stroke& stroke, Mode mode);
+std::vector<Vec> localFilter(const Stroke& stroke,double radius,double cap,double windowSeconds);
+struct Variation { double rms{}; std::size_t samples{}; };
+Variation localVariation(const std::vector<Vec>& path,double span);
 Metrics measure(const Stroke& stroke, const std::vector<Vec>& path);
 // Experimental Catmull-Rom comparison only; never replaces the source samples.
 std::vector<Vec> curve(const std::vector<Vec>& p, unsigned subdivisions=8);

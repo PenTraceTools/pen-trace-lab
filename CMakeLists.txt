@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(PenTraceLab VERSION 0.2.0 LANGUAGES CXX)
+project(PenTraceLab VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,7 +8,7 @@ if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-add_library(pentrace_core src/core.cpp src/trace_io.cpp)
+add_library(pentrace_core src/core.cpp src/trace_io.cpp src/compare.cpp)
 target_include_directories(pentrace_core PUBLIC src)
 add_executable(pentrace_analyze src/analyze.cpp)
 target_link_libraries(pentrace_analyze PRIVATE pentrace_core)

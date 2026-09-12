@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "compare.hpp"
 #include "history.hpp"
 #include "trace_io.hpp"
 #include <algorithm>
@@ -272,6 +273,100 @@ void realPenGuides() {
     require(p.strokes().empty() && p.diagnostics().reports==0,"Guides fabricated recorded samples");
     require(pt::testGuides(1,-1,0).empty(),"Invalid canvas should not generate guides");
 }
+void comparisonAlgorithms() {
+    auto s=diagonal(240); s.ended=true;
+    const auto raw=pt::filter(s,pt::Mode::Off);
+    const auto catalog=pt::candidates();
+    const auto all=pt::compareAll(s);
+    for(unsigned k=0;k<pt::candidateCount;++k) {
+        const auto& c=all[k];
+        require(c.available && c.path.size()==raw.size(),"Candidate unavailable or changed point count");
+        require(c.path==pt::compare(s,catalog[k]).path,"Candidate depends on another candidate");
+        require(c.metrics.displacementMax<=catalog[k].cap+1e-8,"Candidate exceeded displacement cap");
+        for(std::size_t i=0;i<raw.size();++i) require(s.points[i].p==raw[i],"Comparison mutated source");
+        auto shifted=s;
+        for(auto& p:shifted.points) p.p={-p.p.y+300,p.p.x-700};
+        const auto transformed=pt::compare(shifted,catalog[k],false).path;
+        for(std::size_t i=0;i<raw.size();++i)
+            require(pt::length(transformed[i]-pt::Vec{-c.path[i].y+300,c.path[i].x-700})<1e-6,"Candidate is not rotation/translation invariant");
+        auto prefix=s; prefix.points.resize(400); prefix.ended=false;
+        const auto partial=pt::compare(prefix,catalog[k],false);
+        if(k==5) { require(!partial.available,"Offline algorithm leaked into live preview"); continue; }
+        for(std::size_t i=0;i<partial.path.size();++i)
+            if(catalog[k].algorithm!=pt::Algorithm::Local || prefix.points[i].time<prefix.points.back().time-catalog[k].window-.001)
+                require(pt::length(partial.path[i]-c.path[i])<1e-8,"Candidate revised a finalized/causal point");
+        auto boundary=s; boundary.points[100].dpi=144;
+        const auto isolated=pt::compare(boundary,catalog[k],false).path;
+        require(isolated[100]==raw[100] && isolated[101]==raw[101],"Candidate state crossed mapping boundary");
+        auto unknown=s; for(auto& p:unknown.points) p.clock=pt::Clock::ReceiptFallback;
+        require(pt::compare(unknown,catalog[k],false).path==raw,"Untrusted timing drove filtering");
+    }
+    s.canceled=true;
+    require(!pt::compare(s,catalog[5]).available,"Canceled stroke accepted by offline smoother");
+    auto invalid=catalog[2]; invalid.cutoff=0;
+    expectFailure([&]{pt::compare(s,invalid);});
+    invalid=catalog[1]; invalid.window=std::numeric_limits<double>::quiet_NaN();
+    expectFailure([&]{pt::compare(s,invalid);});
+    invalid=catalog[1]; invalid.radius=-1;
+    expectFailure([&]{pt::compare(s,invalid);});
+    invalid=catalog[0]; invalid.algorithm=static_cast<pt::Algorithm>(999);
+    expectFailure([&]{pt::compare(s,invalid);});
+    pt::Stroke stationary; stationary.ended=true;
+    for(unsigned i=0;i<80;++i) stationary.points.push_back(point(i,7,8));
+    for(const auto& c:pt::compareAll(stationary)) for(auto p:c.path)
+        require(pt::length(p-pt::Vec{7,8})<1e-9,"Candidate moved stationary input");
+}
+void comparisonTradeoffs() {
+    pt::Stroke line; line.ended=true;
+    for(unsigned i=0;i<600;++i) line.points.push_back(point(i,i*.4,i*.2));
+    const auto all=pt::compareAll(line);
+    for(const auto& c:all) for(const auto& v:c.variation)
+        require(v.samples && v.rms<1e-8,"Straight path acquired transverse variation");
+    for(unsigned k:{0u,1u,5u}) require(all[k].metrics.endpointDisplacement<1e-8,"Endpoint-preserving candidate changed endpoint");
+    for(unsigned k:{2u,3u,4u}) {
+        require(all[k].metrics.endpointDisplacement>.1,"Causal smoothing should expose endpoint lag");
+        require(all[k].lagMeanMs>1 && all[k].lagSamples>0,"Nearest-path lag proxy missed a straight-line delay");
+    }
+    auto slow=diagonal(240); slow.ended=true;
+    for(auto& p:slow.points) {
+        const double n=.5*std::sin(2*std::numbers::pi*2*p.time);
+        p.p={30*p.time-n,30*p.time+n};
+    }
+    const auto compared=pt::compareAll(slow);
+    require(compared[1].variation[1].rms<compared[0].variation[1].rms,"Longer local window did not help controlled slow waviness");
+    pt::Stroke loop; loop.ended=true;
+    for(unsigned i=0;i<=240;++i) {
+        const double angle=2*std::numbers::pi*i/240;
+        loop.points.push_back(point(i,20*std::cos(angle),20*std::sin(angle)));
+    }
+    const auto reference=pt::compare(loop,{"raw","Raw",pt::Algorithm::Raw});
+    require(reference.loopAreaAvailable && near(reference.loopAreaRatio,1),"Loop area reference incorrect");
+    require(reference.metrics.displacementMax==0 && reference.lagMeanMs==0,"Raw reference is not identity");
+}
+void comparisonExports() {
+    pt::Session session;
+    const pt::LocalOptions options{20,.200,6};
+    session.events.push_back({0,0,pt::comparisonSettings(options)});
+    session.events.push_back({1,0,"Comparison v0.3.0 local 0 0 0"});
+    require(pt::recordedComparisonSettings(session)==options,"Comparison settings not restored/validated");
+    std::stringstream trace; pt::writeTrace(trace,session);
+    require(pt::recordedComparisonSettings(pt::readTrace(trace))==options,"Comparison provenance lost in recording");
+    pt::Processor processor;
+    for(unsigned i=0;i<20;++i) processor.consume(point(i,i,i));
+    const auto checkCsv=[&](bool paths,bool sweep,unsigned expectedRows) {
+        std::ostringstream out; pt::writeComparisonCsv(out,processor,options,paths,sweep);
+        std::istringstream input(out.str()); std::string row; unsigned rows=0,columns=paths?18:29;
+        while(std::getline(input,row)) {
+            require(static_cast<unsigned>(std::count(row.begin(),row.end(),','))+1==columns,"Comparison CSV ragged row");
+            ++rows;
+        }
+        require(rows==expectedRows,"Comparison CSV missing candidates/points");
+        require(out.str().find("local_custom,bounded_revision,1,20,200,6,")!=std::string::npos,"Export ignored adjustable settings");
+        require(out.str().find("offline120,finished_only,0,")!=std::string::npos,"Unavailable offline candidate not explicit");
+    };
+    checkCsv(false,false,8); checkCsv(true,false,122); checkCsv(false,true,28);
+    require(pt::sweepCandidates().size()==26,"Unexpected parameter sweep coverage");
+}
 }
 int main() {
     unsigned failures=0;
@@ -279,7 +374,8 @@ int main() {
         {"lifecycle",lifecycle},{"pointer isolation",pointers},{"filters",filters},
         {"metrics and curves",metrics},{"recording validation",recordings},{"history retrieval",histories},
         {"coordinate mapping",coordinateMapping},{"speed measurements",speedMeasurements},
-        {"clock recovery",clockRecovery},{"bounded filtering",boundedFiltering},{"real-pen guides",realPenGuides}}) {
+        {"clock recovery",clockRecovery},{"bounded filtering",boundedFiltering},{"real-pen guides",realPenGuides},
+        {"comparison algorithms",comparisonAlgorithms},{"comparison tradeoffs",comparisonTradeoffs},{"comparison exports",comparisonExports}}) {
         try {test.second(); std::cout<<"PASS "<<test.first<<'\n';}
         catch(const std::exception& e) {++failures; std::cerr<<"FAIL "<<test.first<<": "<<e.what()<<'\n';}
     }

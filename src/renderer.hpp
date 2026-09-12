@@ -1,5 +1,6 @@
 #pragma once
 #include "core.hpp"
+#include "compare.hpp"
 #include <windows.h>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -13,6 +14,9 @@ struct ViewOptions {
     unsigned test{};
     unsigned speed{};
     std::size_t selected{static_cast<std::size_t>(-1)};
+    // 0 selected, 1 all overlays, 2 inspection grid, 3 exaggerated difference, 4 legacy.
+    unsigned comparisonView{},candidate{1};
+    pt::LocalOptions local;
 };
 struct Layout { float left{20},top{90},right{800},bottom{600}; };
 class Renderer {
@@ -39,6 +43,12 @@ private:
         double deviation{};
     };
     std::vector<Cache> cache_;
+    std::array<pt::Comparison,pt::candidateCount> comparisons_;
+    std::size_t comparisonStroke_{static_cast<std::size_t>(-1)},comparisonPoints_{};
+    bool comparisonEnded_{},comparisonCanceled_{};
+    pt::LocalOptions comparisonOptions_;
+    void prepareComparisons(const pt::Stroke& stroke,std::size_t index,const ViewOptions& view);
+    void comparisonGrid(const pt::Stroke& stroke,const ViewOptions& view,Layout layout);
     double lastPaintMs_{};
     HRESULT target();
     void text(const std::wstring& s,D2D1_RECT_F rect,D2D1_COLOR_F color,bool large=false);

@@ -122,3 +122,10 @@ it. When no interval is usable, summary speed cells are blank. The sidebar shows
 reported-input speed, while metric CSV describes the selected path/filter and
 motion CSV includes both paths. Compare Off versus a selected filter explicitly
 when comparing per-stroke speed summaries.
+# Version 0.3 comparison exports
+
+The `.pentrace` format remains version 1. Comparison settings are optional text
+events, not changes to raw sample fields. Summary/path/sweep CSVs have a separate
+0.3.0 version column and complete per-candidate settings. See
+[COMPARISON.md](COMPARISON.md) for schemas and metric interpretation. The older
+Session metrics/motion CSVs described below still apply to legacy presets only.

@@ -106,14 +106,21 @@ void Processor::consume(const Sample& original) {
     }
 }
 std::vector<Vec> filter(const Stroke& stroke,Mode mode) {
+    if(mode!=Mode::Off) return localFilter(stroke,mode==Mode::Gentle?4:mode==Mode::Steady?8:12,
+        mode==Mode::Gentle?1.5:mode==Mode::Steady?2.5:4,.040);
     std::vector<Vec> out; out.reserve(stroke.points.size());
     for(const auto& s:stroke.points) out.push_back(s.p);
-    if(mode==Mode::Off || out.size()<3) return out;
+    return out;
+}
+std::vector<Vec> localFilter(const Stroke& stroke,double radius,double cap,double window) {
+    if(!std::isfinite(radius) || !std::isfinite(cap) || !std::isfinite(window) ||
+        radius<=0 || radius>100 || cap<=0 || cap>50 || window<=0 || window>1)
+        throw std::invalid_argument("Invalid local filter settings");
+    std::vector<Vec> out; out.reserve(stroke.points.size());
+    for(const auto& s:stroke.points) out.push_back(s.p);
+    if(out.size()<3) return out;
     const auto raw=out;
     const auto movement=motion(stroke,raw);
-    const double radius=mode==Mode::Gentle?4:mode==Mode::Steady?8:12;
-    const double cap=mode==Mode::Gentle?1.5:mode==Mode::Steady?2.5:4;
-    constexpr double window=.040; // At most 40 ms look-ahead; newest point stays raw.
     // Symmetric spatial integration avoids causal along-stroke lag and sample-
     // density weighting. Only local-normal displacement is applied. This is an
     // experimental comparison, not the independently measured true trajectory.
@@ -244,11 +251,19 @@ Metrics measure(const Stroke& stroke,const std::vector<Vec>& path) {
     if(m.speedDuration>0) m.meanSpeed/=m.speedDuration;
     m.p95Speed=percentile(speeds,.95);
     if(!movement.empty()) { m.lastSpeedValid=movement.back().valid(); m.lastSpeed=movement.back().speed; }
-    // Local deviation from a 10-DIP arc-length chord, sampled every .5 DIP.
-    // This includes deliberate curvature/hand motion; it is not sensor accuracy.
+    if(m.nonIncreasing==0 && m.gaps==0) {
+        const auto local=localVariation(path,10);
+        m.localVariationRms=local.rms; m.localVariationSamples=local.samples;
+    }
+    return m;
+}
+Variation localVariation(const std::vector<Vec>& path,double span) {
+    Variation result;
+    if(path.size()<2 || !std::isfinite(span) || span<=0) return result;
+    for(auto p:path) if(!finite(p)) return result;
     std::vector<double> arc(path.size());
     for(std::size_t i=1;i<path.size();++i) arc[i]=arc[i-1]+length(path[i]-path[i-1]);
-    if(arc.back()>10 && arc.back()<=100000 && m.nonIncreasing==0 && m.gaps==0) {
+    if(arc.back()>span && arc.back()<=100000) {
         const auto at=[&](double s) {
             auto hi=static_cast<std::size_t>(std::upper_bound(arc.begin(),arc.end(),s)-arc.begin());
             hi=std::clamp(hi,std::size_t{1},path.size()-1);
@@ -256,15 +271,15 @@ Metrics measure(const Stroke& stroke,const std::vector<Vec>& path) {
             return path[hi-1]+(path[hi]-path[hi-1])*(ds>0?(s-arc[hi-1])/ds:0);
         };
         double squares=0;
-        for(double s=5;s<arc.back()-5;s+=.5) {
-            const auto a=at(s-5),b=at(s+5),p=at(s),v=b-a;
+        for(double s=span*.5;s<arc.back()-span*.5;s+=.5) {
+            const auto a=at(s-span*.5),b=at(s+span*.5),p=at(s),v=b-a;
             const double size=length(v); if(size<1e-6) continue;
             const double d=(v.x*(p.y-a.y)-v.y*(p.x-a.x))/size;
-            squares+=d*d; ++m.localVariationSamples;
+            squares+=d*d; ++result.samples;
         }
-        if(m.localVariationSamples) m.localVariationRms=std::sqrt(squares/m.localVariationSamples);
+        if(result.samples) result.rms=std::sqrt(squares/result.samples);
     }
-    return m;
+    return result;
 }
 std::vector<Vec> curve(const std::vector<Vec>& p,unsigned subdivisions) {
     if(p.size()<2 || subdivisions==0 || subdivisions>64) return p;

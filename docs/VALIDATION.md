@@ -1,5 +1,16 @@
 # Validation record — 2026-09-12
 
+## Version 0.3 comparison lab
+
+Implementation adds six independent candidates, equal-scale comparison panels,
+explicit x8 displacement inspection, adjustable local support, multiscale shape
+and lag proxies, versioned settings and all-candidate/sweep CSVs. Core tests add
+comparison invariants and exports. At this entry's creation, source review is in
+progress and this revision has not yet passed CI; results will be appended below.
+No local build or prerequisite installation is authorized or performed. A new
+portable version will not replace the user's older app folders or recordings.
+Real-device GUI/feel acceptance remains a separate user test.
+
 ## Version 0.2 update (supersedes initial status below)
 
 The public repository is https://github.com/alexiokay/pen-trace-lab. The user ran
