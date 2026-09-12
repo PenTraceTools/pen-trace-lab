@@ -80,12 +80,13 @@ void Renderer::prepareComparisons(const pt::Stroke& s,std::size_t index,const Vi
     comparisonCanceled_=s.canceled; comparisonOptions_=view.local;
 }
 static D2D1_COLOR_F candidateColor(unsigned i) {
-    static const unsigned colors[]={0xD16817,0x009C88,0xB040A0,0x6843C2,0xB77B00,0xDB4252};
+    static const unsigned colors[]={0x009C88,0xB040A0,0x6843C2,0xB77B00,0xDB4252};
     return D2D1::ColorF(colors[std::min(i,pt::candidateCount-1)]);
 }
 void Renderer::comparisonGrid(const pt::Stroke& stroke,const ViewOptions& view,Layout l) {
+    brush_->SetColor(D2D1::ColorF(0xFFFFFF)); target_->FillRectangle(D2D1::RectF(l.left,l.top,l.right,l.bottom),brush_.Get());
     if(stroke.points.empty()) return;
-    const auto raw=pt::filter(stroke,pt::Mode::Off);
+    const auto raw=pt::rawPath(stroke);
     const auto rawVariation=pt::localVariation(raw,10);
     double minX=raw[0].x,maxX=minX,minY=raw[0].y,maxY=minY;
     for(auto p:raw) { minX=std::min(minX,p.x); maxX=std::max(maxX,p.x); minY=std::min(minY,p.y); maxY=std::max(maxY,p.y); }
@@ -140,9 +141,9 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     const auto started=std::chrono::steady_clock::now();
     HRESULT hr=target(); if(FAILED(hr)) return hr;
     const auto l=layout();
-    const auto ink=D2D1::ColorF(0x17324D),muted=D2D1::ColorF(0x526579),blue=D2D1::ColorF(0x2469D8),orange=D2D1::ColorF(0xD16817),purple=D2D1::ColorF(0x9148BA);
+    const auto ink=D2D1::ColorF(0x17324D),muted=D2D1::ColorF(0x526579),blue=D2D1::ColorF(0x2469D8);
     target_->BeginDraw(); target_->SetTransform(D2D1::Matrix3x2F::Identity()); target_->Clear(D2D1::ColorF(0xF2F5FA));
-    text(L"Pen Trace Lab 0.3",D2D1::RectF(20,10,280,42),ink,true);
+    text(L"Pen Trace Lab 0.4",D2D1::RectF(20,10,280,42),ink,true);
     text(status,D2D1::RectF(280,15,l.right+295,44),muted);
     text(std::wstring(testName(view.test))+L"  |  "+testInstruction(view.test),D2D1::RectF(20,48,l.right+295,86),muted);
     brush_->SetColor(D2D1::ColorF(D2D1::ColorF::White)); target_->FillRectangle(D2D1::RectF(l.left,l.top,l.right,l.bottom),brush_.Get());
@@ -159,7 +160,7 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     }
     const auto& strokes=processor.strokes();
     const std::size_t selected=strokes.empty()?0:std::min(view.selected,strokes.size()-1);
-    if(view.comparisonView!=4 && !strokes.empty()) prepareComparisons(strokes[selected],selected,view);
+    if(!strokes.empty()) prepareComparisons(strokes[selected],selected,view);
     if(cache_.size()!=strokes.size()) cache_.resize(strokes.size());
     // Inspect around the selected stroke center; captured coordinates are never zoomed.
     pt::Vec center{w*.5,h*.5};
@@ -174,19 +175,14 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
         if(i<first && i!=selected) continue;
         const auto& s=strokes[i];
         auto& c=cache_[i];
-        if(c.count!=s.points.size() || c.mode!=view.mode) {
-            c.count=s.points.size(); c.mode=view.mode; c.raw=pt::filter(s,pt::Mode::Off); c.filtered=pt::filter(s,view.mode);
-            c.curve=pt::curve(c.filtered); c.rawMetrics=pt::measure(s,c.raw); c.filteredMetrics=pt::measure(s,c.filtered);
-            c.deviation=pt::curveDeviation(c.filtered,c.curve);
+        if(c.count!=s.points.size()) {
+            c.count=s.points.size(); c.raw=pt::rawPath(s); c.rawMetrics=pt::measure(s,c.raw);
         }
         if((s.kind==pt::Kind::Touch && !view.touch) || (s.kind==pt::Kind::Mouse && !view.mouse)) continue;
         const float width=(i==selected?1.5f:1.0f)/view.zoom;
         const auto rawColor=s.kind==pt::Kind::Touch?D2D1::ColorF(0x19846B):s.kind==pt::Kind::Mouse?muted:blue;
         if(view.raw) line(c.raw,rawColor,width);
-        if(view.comparisonView==4) {
-            if(view.filtered && (view.mode!=pt::Mode::Off || !view.raw)) line(c.filtered,orange,width,true);
-            if(view.fitted) line(c.curve,purple,width);
-        } else if(i==selected && view.filtered && view.comparisonView!=2) {
+        if(i==selected && view.filtered && view.comparisonView!=2) {
             for(unsigned j=0;j<pt::candidateCount;++j) {
                 if(view.comparisonView!=1 && j!=view.candidate) continue;
                 const auto& result=comparisons_[j]; if(!result.available) continue;
@@ -209,9 +205,8 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     const float x=l.right+18;
     text(L"Stroke inspection",D2D1::RectF(x,92,x+280,122),ink,true);
     std::wostringstream stats; stats<<std::fixed<<std::setprecision(3);
-    if(view.comparisonView==4) stats<<L"Legacy 0.2 filter: "<<widen(pt::modeName(view.mode))<<L"\n";
-    else {
-        stats<<L"COMPARISON LAB: all 6 evaluated\n1-6: candidate | G: grid | D: difference\nO: all overlays | C: selected/live\nBlue = raw, coloured dashed = candidate\n";
+    {
+        stats<<L"COMPARISON LAB: all 5 evaluated\n1-5: candidate | G: grid | D: difference\nO: all overlays | C: selected/live\nBlue = raw, coloured dashed = candidate\n";
         const auto catalog=pt::candidates(view.local); const auto& candidate=catalog[view.candidate];
         stats<<L"Selected: "<<widen(candidate.name)<<L"\n"<<widen(pt::executionKind(candidate.algorithm))
             <<L" | window: "<<candidate.window*1000<<L" ms\nRadius: "<<candidate.radius<<L" | cap: "<<candidate.cap<<L" DIP\n";
@@ -238,16 +233,13 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     stats<<L"\nReal-pen test: "<<testName(view.test)<<L"\nIntended pace: "<<speeds[std::min(view.speed,2u)]<<L" (a label, not measured)\nF2: next test | F3: next pace\nGrey guides are not recorded strokes.\n";
     stats<<L"\n";
     if(!strokes.empty()) {
-        const auto& s=strokes[selected]; const auto& c=cache_[selected]; const auto& m=c.rawMetrics; const auto& f=c.filteredMetrics;
+        const auto& s=strokes[selected]; const auto& c=cache_[selected]; const auto& m=c.rawMetrics;
         stats<<L"Stroke "<<selected+1<<L" / "<<strokes.size()<<L" ("<<widen(pt::kindName(s.kind))<<L")\n";
         stats<<L"Contact samples: "<<s.points.size()<<L"\n";
         stats<<L"State: "<<(s.canceled?L"canceled":s.ended?L"ended":L"in progress")<<(s.recoveredStart?L" / recovered start":L"")<<L"\n\n";
         stats<<L"Straightness (only meaningful for lines)\n";
         if(m.lineDefined) stats<<L"Input RMS / P95 / max (DIP):\n"<<m.rms<<L" / "<<m.p95<<L" / "<<m.maximum<<L"\n";
         else stats<<L"N/A: insufficient movement\n";
-        if(view.comparisonView==4 && m.localVariationSamples && f.localVariationSamples)
-            stats<<L"Local variation RMS (10 DIP span):\nInput "<<m.localVariationRms<<L" / filter "<<f.localVariationRms<<L" DIP\nIncludes hand motion / intended curves.\n";
-        if(view.comparisonView==4) stats<<L"\nFilter displacement RMS / max:\n"<<f.displacementRms<<L" / "<<f.displacementMax<<L" DIP\nEndpoint displacement: "<<f.endpointDisplacement<<L" DIP\nSampled curve deviation: "<<c.deviation<<L" DIP\n\n";
         stats<<L"Reported speed (estimated DIP/s)\n";
         stats<<L"Last interval: "<<(m.lastSpeedValid?std::to_wstring(m.lastSpeed):L"N/A")<<L"\n";
         if(m.speedIntervals) stats<<L"Mean / P95 / max:\n"<<m.meanSpeed<<L" / "<<m.p95Speed<<L" / "<<m.maxSpeed<<L"\n";
@@ -264,12 +256,12 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     } else stats<<L"Draw with your pen to begin.\nMouse display: View menu.\n";
     const auto& d=processor.diagnostics();
     stats<<L"\nReports: "<<d.reports<<L" | duplicates: "<<d.duplicates<<L"\nTiming anomalies: "<<d.nonIncreasingTimes
-        <<L"\nLegacy report clocks recovered: "<<d.recoveredTiming<<L"\nReport/receipt offsets: "<<d.clockOffsetReports
+        <<L"\nRecovered report clocks: "<<d.recoveredTiming<<L"\nReport/receipt offsets: "<<d.clockOffsetReports
         <<L" (not pen latency)\nInvalid: "<<d.invalid<<L" | boundaries: "<<d.boundaries<<L"\nNormalization limit hits: "<<d.limits;
     target_->PushAxisAlignedClip(D2D1::RectF(x,128,x+280,l.bottom),D2D1_ANTIALIAS_MODE_ALIASED);
     text(stats.str(),D2D1::RectF(x,132-view.sidebarScroll,x+280,3000-view.sidebarScroll),ink);
     target_->PopAxisAlignedClip();
-    text(L"1-6: candidate   G: grid   D: difference x8   C: selected/live view   [ / ]: stroke   Space: pause/live",D2D1::RectF(20,l.bottom+5,l.right+295,l.bottom+29),muted);
+    text(L"1-5: candidate   G: grid   D: difference x8   C: selected/live view   [ / ]: stroke   Space: pause/live",D2D1::RectF(20,l.bottom+5,l.right+295,l.bottom+29),muted);
     // Metadata stays in the file; a short line is visible without hiding the canvas.
     if(!metadata.empty()) SetWindowTextW(window_,(L"Pen Trace Lab — "+metadata.substr(0,100)).c_str());
     hr=target_->EndDraw();

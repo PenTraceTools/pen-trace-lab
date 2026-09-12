@@ -23,11 +23,9 @@ Vec mapHimetric(Vec reported,const std::array<std::int32_t,4>& device,const std:
 Vec toCanvas(Vec screen,Vec clientOrigin,double dpi,Vec canvasOrigin);
 enum class Kind : unsigned { Pen=1, Touch=2, Mouse=3 };
 enum class Clock : unsigned { Qpc=1, Milliseconds=2, ReceiptFallback=3 };
-enum class Mode : unsigned { Off=0, Gentle=1, Steady=2, Strong=3 };
 struct ClockCalibration { std::uint64_t origin{}, frequency{}; };
 // Receipt offset is not report cadence. Grossly incompatible clocks are rejected.
 std::optional<double> reportTime(std::uint64_t qpc,ClockCalibration calibration,double receipt);
-const char* modeName(Mode mode);
 const char* kindName(Kind kind);
 
 // A Windows report plus its acquisition envelope. Original fields are retained.
@@ -110,14 +108,11 @@ struct Motion {
 };
 const char* motionStatusName(MotionStatus status);
 std::vector<Motion> motion(const Stroke& stroke,const std::vector<Vec>& path);
-std::vector<Vec> filter(const Stroke& stroke, Mode mode);
+std::vector<Vec> rawPath(const Stroke& stroke);
 std::vector<Vec> localFilter(const Stroke& stroke,double radius,double cap,double windowSeconds);
 struct Variation { double rms{}; std::size_t samples{}; };
 Variation localVariation(const std::vector<Vec>& path,double span);
 Metrics measure(const Stroke& stroke, const std::vector<Vec>& path);
-// Experimental Catmull-Rom comparison only; never replaces the source samples.
-std::vector<Vec> curve(const std::vector<Vec>& p, unsigned subdivisions=8);
-double curveDeviation(const std::vector<Vec>& source, const std::vector<Vec>& fitted, unsigned subdivisions=8);
 // Visual targets only: these must never be passed to Processor::consume.
 constexpr unsigned testCount=9;
 std::vector<std::vector<Vec>> testGuides(unsigned test,double width,double height);

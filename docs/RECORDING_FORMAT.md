@@ -6,15 +6,12 @@ do not affect it. Doubles are written with 17 significant digits. Metadata/event
 strings use C++ `std::quoted` escaping for quotes/backslashes; line breaks become
 spaces on save. The application does not accept partial recordings as complete.
 
-App 0.2 still writes this same version-1 source format. Opening an older file does
-not alter it. Saved clock calibration may repair legacy receipt fallback in the
-derived analysis only. Motion CSV adds `analysis_clock_recovered` and
-`filter_version` (0.2.0), so it is distinguishable from old One Euro exports.
-Reported-samples CSV still exports original stored times. Filter names in 0.2
-refer to the new local-normal algorithm, not the 0.1 implementation.
-Metric CSV adds local-variation RMS/coverage, recovered contact-point count and
-filter version. Local variation is unavailable for short/over-limit paths and
-paths with nonincreasing selected time or gaps; it is not a hardware-error metric.
+App 0.4 writes this same version-1 source format. Opening an older file does
+not alter it. Saved clock calibration may repair older receipt fallback in the
+derived analysis only. Reported-samples CSV still exports original stored times.
+Analysis exports identify version 0.4.0 and any derived clock recovery. Local
+variation is unavailable for short/over-limit paths and invalid motion runs;
+it is not a hardware-error metric. See the export sections below.
 
 ```text
 PENTRACE 1
@@ -79,16 +76,14 @@ not currently captured. Original reports include hover/up and duplicates;
 normalized contact-only strokes are derived again during replay.
 
 Sample CSV is a convenient subset, not a lossless substitute for `.pentrace`.
-Metric CSV always analyzes the full recording, even during a partial replay, with
-the currently chosen filter. Values remain in DIPs, seconds and milliseconds as
-named in the header; nothing is labeled as physical pen accuracy.
+Comparison CSV analyzes the full recording, including during partial replay.
+See [COMPARISON.md](COMPARISON.md) for candidate and metric semantics.
 
 ## Motion and speed exports
 
-Session > Export motion / speed CSV derives velocities from **normalized contact
+Session > Export reported motion / speed CSV derives velocities from **normalized contact
 strokes**, keeping each pointer/device separate and excluding duplicate reports
-and hover/up samples. It exports both raw and selected-filter positions, X/Y
-velocity and speed, along with source sequence, timing source and validity status.
+and hover/up samples. It exports raw positions, X/Y velocity and speed, along with source sequence, timing source and validity status.
 The original `.pentrace` format remains version 1: derived speed is recomputed
 from its original positions/timestamps and is not written over them.
 
@@ -110,22 +105,21 @@ An actual stationary pen with usable timestamps correctly produces zero speed.
 These validity checks do not prove that the underlying reports are physically
 accurate. Millisecond clocks have lower precision than QPC clocks.
 
-Per-stroke metric CSV adds:
+The sidebar reports raw last/mean/P95/max speed; comparison summary CSV includes
+raw mean speed and invalid-interval counts. Mean speed is total distance over
+usable intervals divided by their total duration. It is time-weighted, while
+the sidebar P95 is interval-weighted. Speed is not independent physical truth.
 
-- valid/rejected speed-interval counts (the first sample is not an interval);
-- usable duration in seconds;
-- mean speed = total distance over usable intervals / their total duration;
-- nearest-rank P95 and maximum of usable interval speeds.
+## Version 0.4 analysis exports
 
-The mean is time-weighted. P95 is interval-weighted, so report density can affect
-it. When no interval is usable, summary speed cells are blank. The sidebar shows
-reported-input speed, while metric CSV describes the selected path/filter and
-motion CSV includes both paths. Compare Off versus a selected filter explicitly
-when comparing per-stroke speed summaries.
-# Version 0.3 comparison exports
+The reported-motion CSV has 16 columns: stroke, sequence, device_session_id,
+pointer, kind, time_seconds, clock_source, raw_x_dip, raw_y_dip, dt_seconds,
+speed_status, raw_vx_dip_per_s, raw_vy_dip_per_s, raw_speed_dip_per_s,
+analysis_clock_recovered, analysis_version. Version is 0.4.0; no preset or
+filtered-path columns remain. The first sample has blank dt/velocity/speed;
+unusable subsequent intervals retain dt and their reason but blank velocity/speed.
 
-The `.pentrace` format remains version 1. Comparison settings are optional text
-events, not changes to raw sample fields. Summary/path/sweep CSVs have a separate
-0.3.0 version column and complete per-candidate settings. See
-[COMPARISON.md](COMPARISON.md) for schemas and metric interpretation. The older
-Session metrics/motion CSVs described below still apply to legacy presets only.
+Comparison summary/path/sweep CSV carries version 0.4.0 and complete candidate
+settings. See [COMPARISON.md](COMPARISON.md). The source format remains v1;
+comparison settings are optional events. Both 0.3 and 0.4 settings are accepted
+when opening old recordings. No source reports are rewritten by analysis.

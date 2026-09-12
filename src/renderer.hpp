@@ -8,14 +8,13 @@
 #include <string>
 
 struct ViewOptions {
-    pt::Mode mode{pt::Mode::Off};
-    bool raw{true},filtered{true},dots{},fitted{},touch{true},mouse{false},selectedOnly{};
+    bool raw{true},filtered{true},dots{},touch{true},mouse{false},selectedOnly{};
     float zoom{1},sidebarScroll{};
     unsigned test{};
     unsigned speed{};
     std::size_t selected{static_cast<std::size_t>(-1)};
-    // 0 selected, 1 all overlays, 2 inspection grid, 3 exaggerated difference, 4 legacy.
-    unsigned comparisonView{},candidate{1};
+    // 0 selected, 1 all overlays, 2 inspection grid, 3 exaggerated difference.
+    unsigned comparisonView{},candidate{};
     pt::LocalOptions local;
 };
 struct Layout { float left{20},top{90},right{800},bottom{600}; };
@@ -37,10 +36,9 @@ private:
     Ptr<IDWriteFactory> textFactory_;
     Ptr<IDWriteTextFormat> normal_,large_;
     struct Cache {
-        std::size_t count{}; pt::Mode mode{};
-        std::vector<pt::Vec> raw,filtered,curve;
-        pt::Metrics rawMetrics,filteredMetrics;
-        double deviation{};
+        std::size_t count{};
+        std::vector<pt::Vec> raw;
+        pt::Metrics rawMetrics;
     };
     std::vector<Cache> cache_;
     std::array<pt::Comparison,pt::candidateCount> comparisons_;

@@ -13,7 +13,7 @@ struct Candidate {
     Algorithm algorithm{};
     double radius{},window{},cap{},cutoff{},beta{},derivative{12};
 };
-constexpr unsigned candidateCount=6;
+constexpr unsigned candidateCount=5;
 std::array<Candidate,candidateCount> candidates(LocalOptions local={});
 std::vector<Candidate> sweepCandidates();
 std::string comparisonSettings(LocalOptions options);

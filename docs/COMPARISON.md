@@ -1,23 +1,23 @@
-# Comparison lab (0.3.0)
+# Comparison lab (0.4.0)
 
 ## Purpose and workflow
 
 The 0.2 presets shared a 40 ms future-data window. At slow pen speeds this
 limits spatial support before their different radius limits are reached, so
 Strong could resemble Gentle. Increasing a displacement cap alone cannot fix
-that. Version 0.3 compares distinct smoothing/time/detail trade-offs on the same
+that. The comparison lab compares distinct smoothing/time/detail trade-offs on the same
 recording. It does not claim to recover the physical tip trajectory.
 
-Open any existing `.pentrace`: G shows the first stroke in a six-panel grid.
+Open any existing `.pentrace`: G shows the first stroke in a five-panel grid.
 Use `[` / `]` to select a different stroke. Blue is recorded input, coloured
 dashes are the candidate. Each panel uses identical raw bounds and scale.
-1–6 selects the candidate for C (normal overlay) or D (difference x8). D displays
+1–5 selects the candidate for C (normal overlay) or D (difference x8). D displays
 `raw + 8 * (candidate - raw)` and explicitly exaggerates offsets; all statistics
 and exports still use actual candidate coordinates. Z zooms around the stroke
 centre. Grid, difference and zoom pause capture. Return Z to 1x, then use Space
 to resume a live recording; loaded recordings require Ctrl+N before drawing new data.
 
-All six candidates are independently evaluated for the selected stroke; all
+All five candidates are independently evaluated for the selected stroke; all
 strokes are evaluated in comparison exports. They are not cascaded. Live paths
 are recomputed outside the input callback; expensive scores are finalized on
 lift/inspection and cached. This is a diagnostic implementation, not an optimized
@@ -28,14 +28,13 @@ counter. It is not a pen-to-photon latency measurement.
 
 | Key / ID | Algorithm and default parameters | Important cost |
 | --- | --- | --- |
-| 1 / local40 | Local-normal, radius 8 DIP, cap 2.5 DIP, window 40 ms | Reference matching 0.2 Steady; provisional tail |
-| 2 / local_custom | Local-normal, radius 12 DIP, cap 4 DIP, window 120 ms | More slow-speed support; longer visible revisions |
-| 3 / euro_responsive | One Euro variant, cutoff 3 Hz, beta .020, derivative 12 Hz, cap 6 DIP | Causal, but geometric lag and short endings |
-| 4 / euro_smooth | One Euro variant, cutoff 1 Hz, beta .005, derivative 8 Hz, cap 10 DIP | More smoothing can lose detail and increase lag |
-| 5 / buffer80 | Trailing time-integrated mean, 80 ms, cap 10 DIP | Causal averaging, approximately half-window lag at steady speed |
-| 6 / offline120 | Symmetric Gaussian time window ±120 ms, cap 4 DIP | Only finished, uncanceled strokes; not live ink |
+| 1 / local_custom | Local-normal, radius 12 DIP, cap 4 DIP, window 120 ms | More slow-speed support; longer visible revisions |
+| 2 / euro_responsive | One Euro variant, cutoff 3 Hz, beta .020, derivative 12 Hz, cap 6 DIP | Causal, but geometric lag and short endings |
+| 3 / euro_smooth | One Euro variant, cutoff 1 Hz, beta .005, derivative 8 Hz, cap 10 DIP | More smoothing can lose detail and increase lag |
+| 4 / buffer80 | Trailing time-integrated mean, 80 ms, cap 10 DIP | Causal averaging, approximately half-window lag at steady speed |
+| 5 / offline120 | Symmetric Gaussian time window ±120 ms, cap 4 DIP | Only finished, uncanceled strokes; not live ink |
 
-Raw is also exported as an identity reference. Local 2 has menu controls for
+Raw is also exported as an identity reference. Local 1 has menu controls for
 radii 4/8/12/20 DIP, windows 40/80/120/200 ms and caps 1.5/2.5/4/6 DIP. Settings
 changes deliberately reprocess the entire selected stroke. All coordinates
 remain logical DIPs, not calibrated millimetres.
@@ -107,14 +106,14 @@ stroke, candidate, execution kind (`causal`, `bounded_revision`, `finished_only`
 availability and numeric settings. Summary contains the metrics above and
 coverage counts. Paths contains original sequence, normalized report time,
 clock-recovery flag, raw and candidate X/Y. Unavailable results have blank fields.
-The sweep includes the six current candidates plus 12 local combinations,
-six One Euro combinations and two buffered windows (26 plus raw); repeated
+The sweep includes the five current candidates plus 12 local combinations,
+six One Euro combinations and two buffered windows (25 plus raw); repeated
 parameters with distinct IDs are intentional baseline controls.
 
 `.pentrace` remains format 1. Raw reports and the event log are the source;
 derived paths are reproducible, not duplicated in the recording. New sessions,
 live settings changes, resuming and saving record
-`Comparison v0.3.0 local <radius> <window_seconds> <cap>` events. Reopening restores
+`Comparison v0.4.0 local <radius> <window_seconds> <cap>` events. Reopening restores
 the last valid setting and reprocesses all strokes with it, not a historical
 per-stroke setting timeline. Versioned fixed candidates complete the provenance.
 Exports always contain the actual settings even if a loaded recording is not
@@ -126,9 +125,10 @@ The console analyzer is read-only and shares the GUI core:
 pentrace_analyze.exe "recording.pentrace" --compare
 pentrace_analyze.exe "recording.pentrace" --paths
 pentrace_analyze.exe "recording.pentrace" --sweep
-pentrace_analyze.exe "recording.pentrace" --legacy
 ```
 
-Default is `--compare`; redirect stdout to a new CSV if desired. Legacy Session
-metrics/motion exports still use the legacy preset, regardless of the selected
-comparison candidate. No recordings are uploaded by the application.
+Default is `--compare`; redirect stdout to a new CSV if desired. Session also
+exports reported motion/speed, with no filtering applied. The old preset view,
+curve experiment, preset exports and CLI flag have been removed. Settings from
+0.3 recordings are still accepted; source recordings remain compatible.
+No recordings are uploaded by the application.

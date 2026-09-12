@@ -105,82 +105,26 @@ report times. Replay on a different display does not recreate the original
 physical pen/display latency. A 16 ms UI timer requests redraws; Windows/GPU load
 can change actual frame timing.
 
-## Analysis and filtering
+## Analysis, filtering and rendering
 
-For an intended straight stroke, a PCA/orthogonal least-squares line is fitted to
-the selected centerline. Absolute perpendicular deviations give RMS, nearest-rank
-P95 and max. A stationary point does not define a line. Samples are equally
-weighted; varying report density can influence statistics.
+The only analysis mode is the independent-candidate comparison described in
+[COMPARISON.md](COMPARISON.md). Raw input is an identity reference; the five
+candidates each start from it. Local-normal smoothing, One Euro variants,
+trailing averaging and an explicitly offline Gaussian comparison have separate
+execution/lag/shape trade-offs. There is no preset-mode enum or curve-fit renderer.
+The old Off/Gentle/Steady/Strong view and exports were removed in version 0.4.
 
-Filtered straightness uses its own fitted line. Reported-to-filtered displacement
-and endpoint displacement are also shown so straightness cannot conceal shape
-movement. Intervals are measured between retained in-contact reports; nonpositive
-intervals are counted separately, not included in the positive-interval mean.
-Gaps exceed 50 ms; that is a diagnostic threshold, not a hardware certification rule.
+Input timestamps, mapping and contact segmentation remain separate from every
+filter. Local filters reset across invalid timing/mapping intervals and preserve
+run endpoints. Causal filters expose endpoint lag instead of inventing a tail.
+The reported-motion export uses only original normalized positions and valid
+report intervals. Summary/path/sweep exports identify each candidate and settings.
 
-Version 0.2 replaces the One Euro comparison with experimental bounded local
-normal smoothing. It integrates the measured piecewise-linear path uniformly by
-arc length over a symmetric neighbourhood. The local chord defines a tangent;
-only the normal component of the difference to the neighbourhood mean is applied.
-There is no global straight-line fit, reference-guide snapping or prediction.
-
-- Gentle / Steady / Strong: spatial radii 4 / 8 / 12 DIPs and displacement caps
-  1.5 / 2.5 / 4 DIPs respectively. These are experimental, not device-calibrated.
-- Both sides of the neighbourhood are limited to 40 ms of valid report time.
-  The current last point stays raw; the trailing 40 ms can revise as more input
-  arrives. This bounded-look-ahead comparison is NOT a drop-in immutable live-ink
-  pipeline. Integration into painting needs a provisional tail and compositing tests.
-- Start/end positions stay exactly measured; no extrapolated tails or synthetic
-  pen-up positions. Endpoint gain tapers over at most 40 ms, even at slow speeds.
-- Local turns between 30 and 60 degrees attenuate correction; sharper turns and
-  reversals get no correction at that vertex. This heuristic cannot guarantee
-  preservation of every intentional detail. Test small loops and writing.
-- Invalid timing, pointer, clock or coordinate-space transitions split windows.
-- Uniform arc-length integration avoids weighting one location more heavily just
-  because reports arrived in a dense batch. Complexity is O(n log n).
-
-Local variation RMS additionally measures perpendicular deviation from a chord
-spanning 10 DIPs along the path, sampled every .5 DIP. It includes hand movement
-and intended curvature, not just noise. Short paths and paths over 100,000 DIPs
-are unavailable (bounded analysis work). Compare like-for-like shapes and speeds.
-
-Real-pen tests draw grey reference geometry only. Those points have no input to
-Processor or filtering. The artificial demo was removed from the user-facing app;
-synthetic input remains in automated regression tests, where known geometry can
-check invariants but cannot establish physical pen performance.
-
-## Rendering comparison
-
-The backend is Direct2D with DirectWrite, not Vulkan. Windows normally supplies
-GPU acceleration through Direct3D, with a software fallback when needed. Input
-acquisition and offline metrics do not depend on this graphics backend. This
-choice keeps the diagnostic separate from InfiniPaint's renderer; it does not
-prove either backend produces better pen coordinates.
-[Microsoft's Direct2D overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-overview).
-
-The reported path is solid blue and the selected-filter comparison is dashed
-orange. Both overlays use the same recorded input. Dash styling affects pixels
-only, not point sampling or measurement. Off draws the coincident paths once.
-
-Speed is derived and exported explicitly; see [motion semantics](RECORDING_FORMAT.md#motion-and-speed-exports).
-For independent hardware measurement and correction-layer ideas, see
-[INDEPENDENT_TRACKING.md](INDEPENDENT_TRACKING.md).
-
-Direct polylines are the baseline. The optional purple uniform Catmull-Rom curve
-is an overshoot experiment, **not an exact reproduction of InfiniPaint's renderer**.
-It is sampled eight times per source interval. The reported curve deviation is
-the maximum sampled distance to that corresponding source segment; it is not an
-analytic error bound or a pixel-level raster comparison.
-
-To identify an InfiniPaint-specific geometry defect, the next integration step is
-to replay this recording through the actual InfiniPaint stroke geometry pipeline
-and compare its centerline/outline. This independent recorder alone cannot prove
-which operation inside InfiniPaint caused a discrepancy.
-
-Pressure and tilt are recorded but do not change line width in this diagnostic.
-This intentionally separates position wobble from brush-width/taper artifacts.
-Pressure-shaped painting and transparent brush compositing require subsequent
-tests in the real application.
+Direct2D renders raw polylines and coloured dashed candidate polylines. Dashes
+are visual styling, not omitted reports. G displays five equal-scale panels;
+D exaggerates candidate displacement by 8x and is explicitly inspection-only.
+Metrics and CSV paths never use the exaggerated geometry. Touch and pen have
+separate streams; hiding touch does not delete its recorded reports.
 
 ## Microsoft's moving-jitter test
 
@@ -226,9 +170,3 @@ its fixture or certification. The app does not issue a Windows compliance verdic
 There is no guaranteed algorithm for complete noise removal with perfect intent
 preservation. Device/driver investigation may be necessary when baseline input
 cannot meet the user's tolerance without distorting deliberate detail.
-# Version 0.3 comparison extension
-
-See [COMPARISON.md](COMPARISON.md) for the implemented independent algorithms,
-execution constraints, settings provenance, inspection views and metric limits.
-The existing input/normalization pipeline is unchanged. Earlier filter sections
-below describe the legacy presets retained for controlled comparisons.

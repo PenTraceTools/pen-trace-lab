@@ -26,10 +26,6 @@ Vec toCanvas(Vec screen,Vec origin,double dpi,Vec offset) {
     if(!std::isfinite(dpi) || dpi<=0) throw std::invalid_argument("Invalid window DPI.");
     return (screen-origin)*(96/dpi)-offset;
 }
-const char* modeName(Mode m) {
-    switch(m) { case Mode::Gentle:return "Gentle"; case Mode::Steady:return "Steady";
-    case Mode::Strong:return "Strong"; default:return "Off"; }
-}
 const char* kindName(Kind k) {
     return k==Kind::Pen ? "Pen" : k==Kind::Touch ? "Touch" : "Mouse";
 }
@@ -105,9 +101,7 @@ void Processor::consume(const Sample& original) {
         if(s.up || !s.contact) { stroke.ended=true; state.active=none; }
     }
 }
-std::vector<Vec> filter(const Stroke& stroke,Mode mode) {
-    if(mode!=Mode::Off) return localFilter(stroke,mode==Mode::Gentle?4:mode==Mode::Steady?8:12,
-        mode==Mode::Gentle?1.5:mode==Mode::Steady?2.5:4,.040);
+std::vector<Vec> rawPath(const Stroke& stroke) {
     std::vector<Vec> out; out.reserve(stroke.points.size());
     for(const auto& s:stroke.points) out.push_back(s.p);
     return out;
@@ -281,24 +275,6 @@ Variation localVariation(const std::vector<Vec>& path,double span) {
     }
     return result;
 }
-std::vector<Vec> curve(const std::vector<Vec>& p,unsigned subdivisions) {
-    if(p.size()<2 || subdivisions==0 || subdivisions>64) return p;
-    std::vector<Vec> out; out.reserve((p.size()-1)*subdivisions+1); out.push_back(p.front());
-    for(std::size_t i=0;i+1<p.size();++i) {
-        Vec a=p[i?i-1:i], b=p[i], c=p[i+1], d=p[std::min(i+2,p.size()-1)];
-        for(unsigned j=1;j<=subdivisions;++j) {
-            const double t=static_cast<double>(j)/subdivisions;
-            out.push_back((b*2+(c-a)*t+(a*2-b*5+c*4-d)*(t*t)+
-                (a*(-1)+b*3-c*3+d)*(t*t*t))*.5);
-        }
-    }
-    return out;
-}
-static double segmentDistance(Vec p,Vec a,Vec b) {
-    const Vec d=b-a; const double sq=d.x*d.x+d.y*d.y;
-    const Vec v=p-a; const double t=sq>0 ? std::clamp((v.x*d.x+v.y*d.y)/sq,0.0,1.0) : 0;
-    return length(p-(a+d*t));
-}
 std::vector<std::vector<Vec>> testGuides(unsigned test,double w,double h) {
     std::vector<std::vector<Vec>> guides;
     if(!std::isfinite(w) || !std::isfinite(h) || w<=0 || h<=0) return guides;
@@ -334,14 +310,5 @@ std::vector<std::vector<Vec>> testGuides(unsigned test,double w,double h) {
         }
     }
     return guides;
-}
-double curveDeviation(const std::vector<Vec>& source,const std::vector<Vec>& fitted,unsigned subdivisions) {
-    if(source.size()<2 || subdivisions==0 || fitted.size()!=(source.size()-1)*subdivisions+1) return 0;
-    double maximum=0;
-    for(std::size_t i=1;i<fitted.size();++i) {
-        const auto segment=(i-1)/subdivisions;
-        maximum=std::max(maximum,segmentDistance(fitted[i],source[segment],source[segment+1]));
-    }
-    return maximum;
 }
 }

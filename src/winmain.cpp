@@ -16,10 +16,10 @@
 
 namespace {
 enum Command : UINT {
-    New=100,Save,Open,Samples,Metrics,Notes,Exit,Pause,Replay,ReplayFast,Stop,ShowLog,MotionCsv,
-    Raw=200,Filtered,Dots,Fitted,Touch,Mouse,Zoom,Previous,Next,SelectedOnly,
-    Off=300,Gentle,Steady,Strong,Test0=400,Help=500,NextTest,NextPace,Slow=600,Normal,Fast,
-    LabSelected=700,LabOverlay,LabGrid,LabDifference,LabLegacy,LabSummary,LabPaths,LabSweep,
+    New=100,Save,Open,Samples,Notes,Exit,Pause,Replay,ReplayFast,Stop,ShowLog,MotionCsv,
+    Raw=200,Filtered,Dots,Touch,Mouse,Zoom,Previous,Next,SelectedOnly,
+    Test0=400,Help=500,NextTest,NextPace,Slow=600,Normal,Fast,
+    LabSelected=700,LabOverlay,LabGrid,LabDifference,LabSummary,LabPaths,LabSweep,
     Candidate0=720,Radius0=740,Window0=750,Cap0=760
 };
 struct NotesDialog { HWND edit{}; bool accepted{}; std::wstring value; };
@@ -101,23 +101,21 @@ void atomicWrite(const std::filesystem::path& path,const std::function<void(std:
     } catch(...) { DeleteFileW(temporary); throw; } // only the exact file created above
 }
 HMENU menus() {
-    HMENU bar=CreateMenu(),session=CreatePopupMenu(),capture=CreatePopupMenu(),view=CreatePopupMenu(),filter=CreatePopupMenu(),test=CreatePopupMenu(),lab=CreatePopupMenu();
+    HMENU bar=CreateMenu(),session=CreatePopupMenu(),capture=CreatePopupMenu(),view=CreatePopupMenu(),test=CreatePopupMenu(),lab=CreatePopupMenu();
     auto add=[](HMENU menu,UINT id,const wchar_t* label){AppendMenuW(menu,MF_STRING,id,label);};
     add(session,New,L"New recording\tCtrl+N"); add(session,Notes,L"Device and test notes...");
     add(session,Save,L"Save recording...\tCtrl+S"); add(session,Open,L"Open recording...\tCtrl+O");
-    add(session,Samples,L"Export reported samples CSV..."); add(session,Metrics,L"Export legacy per-stroke metrics CSV...");
-    add(session,MotionCsv,L"Export legacy motion / speed CSV...");
+    add(session,Samples,L"Export reported samples CSV...");
+    add(session,MotionCsv,L"Export reported motion / speed CSV...");
     add(session,ShowLog,L"Recent diagnostic events...");
     add(session,Exit,L"Exit");
     add(capture,Pause,L"Pause / resume live capture\tSpace"); add(capture,Replay,L"Replay recording at 1x");
     add(capture,ReplayFast,L"Replay recording at 4x"); add(capture,Stop,L"Show full recording / stop replay");
     add(view,Raw,L"Reported polyline (solid)"); add(view,Filtered,L"Filtered polyline (dashed)"); add(view,Dots,L"Reported sample dots");
-    add(view,Fitted,L"Legacy experimental curve overlay"); add(view,Touch,L"Show finger strokes");
+    add(view,Touch,L"Show finger strokes");
     add(view,Mouse,L"Capture/show mouse (not a pen test)"); add(view,Zoom,L"Inspection zoom: 1x / 2x / 4x\tZ");
     add(view,Previous,L"Previous stroke\t["); add(view,Next,L"Next stroke\t]");
     add(view,SelectedOnly,L"Show only selected stroke (keeps all data)");
-    add(filter,Off,L"Off (baseline)\t0"); add(filter,Gentle,L"Gentle (1.5 DIP displacement cap)");
-    add(filter,Steady,L"Steady (2.5 DIP displacement cap)"); add(filter,Strong,L"Strong (4 DIP displacement cap)");
     for(unsigned i=0;i<pt::testCount;++i) add(test,Test0+i,testName(i));
     AppendMenuW(test,MF_SEPARATOR,0,nullptr);
     add(test,NextTest,L"Next real-pen test\tF2");
@@ -125,7 +123,6 @@ HMENU menus() {
     add(test,NextPace,L"Next intended pace\tF3");
     add(lab,LabSelected,L"Selected candidate (live-capable)\tC"); add(lab,LabOverlay,L"Overlay all candidates\tO");
     add(lab,LabGrid,L"Side-by-side grid (pauses capture)\tG"); add(lab,LabDifference,L"Difference x8 (exaggerated; pauses)\tD");
-    add(lab,LabLegacy,L"Legacy 0.2 presets");
     AppendMenuW(lab,MF_SEPARATOR,0,nullptr);
     const auto catalog=pt::candidates();
     for(unsigned i=0;i<pt::candidateCount;++i) add(lab,Candidate0+i,(widen(catalog[i].name)+L"\t"+std::to_wstring(i+1)).c_str());
@@ -145,7 +142,6 @@ HMENU menus() {
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(capture),L"Capture / replay");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(view),L"View");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(lab),L"Compare");
-    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(filter),L"Legacy filters");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(test),L"Real-pen tests"); add(bar,Help,L"Help");
     return bar;
 }
@@ -195,20 +191,19 @@ public:
         log(input.now(),0,input.clockDescription());
         log(input.now(),0,"Environment: native processor architecture="+std::to_string(info.wProcessorArchitecture)+
             "; window DPI="+std::to_string(GetDpiForWindow(window))+"; canvas DIP width="+std::to_string(l.right-l.left)+
-            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.3.0; test="+narrow(testName(view.test)));
+            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.4.0; test="+narrow(testName(view.test)));
         log(input.now(),0,"Intended pace: "+std::to_string(view.speed)+" (0 slow, 1 normal, 2 fast; label only)");
         log(input.now(),0,pt::comparisonSettings(view.local));
     }
     void refreshMenus() {
         const HMENU menu=GetMenu(window);
         auto check=[&](UINT id,bool on){CheckMenuItem(menu,id,MF_BYCOMMAND|(on?MF_CHECKED:MF_UNCHECKED));};
-        check(Raw,view.raw); check(Filtered,view.filtered); check(Dots,view.dots); check(Fitted,view.fitted);
+        check(Raw,view.raw); check(Filtered,view.filtered); check(Dots,view.dots);
         check(Touch,view.touch); check(Mouse,view.mouse); check(Pause,!live);
         check(SelectedOnly,view.selectedOnly);
-        CheckMenuRadioItem(menu,Off,Strong,Off+static_cast<UINT>(view.mode),MF_BYCOMMAND);
         CheckMenuRadioItem(menu,Test0,Test0+pt::testCount-1,Test0+view.test,MF_BYCOMMAND);
         CheckMenuRadioItem(menu,Slow,Fast,Slow+view.speed,MF_BYCOMMAND);
-        CheckMenuRadioItem(menu,LabSelected,LabLegacy,LabSelected+view.comparisonView,MF_BYCOMMAND);
+        CheckMenuRadioItem(menu,LabSelected,LabDifference,LabSelected+view.comparisonView,MF_BYCOMMAND);
         CheckMenuRadioItem(menu,Candidate0,Candidate0+pt::candidateCount-1,Candidate0+view.candidate,MF_BYCOMMAND);
         const double radii[]={4,8,12,20},windows[]={.040,.080,.120,.200},caps[]={1.5,2.5,4,6};
         for(unsigned i=0;i<4;++i) { check(Radius0+i,view.local.radius==radii[i]); check(Window0+i,view.local.window==windows[i]); check(Cap0+i,view.local.cap==caps[i]); }
@@ -216,18 +211,17 @@ public:
     void command(UINT id) {
         if(id==NextTest) id=Test0+(view.test+1)%pt::testCount;
         if(id==NextPace) id=Slow+(view.speed+1)%3;
-        if(id>=LabSelected && id<=LabLegacy) {
+        if(id>=LabSelected && id<=LabDifference) {
             if(id==LabGrid || id==LabDifference) pause();
             view.comparisonView=id-LabSelected;
         } else if(id>=Candidate0 && id<Candidate0+pt::candidateCount) {
-            view.candidate=id-Candidate0; if(view.comparisonView==4) view.comparisonView=0;
+            view.candidate=id-Candidate0;
         } else if((id>=Radius0 && id<Radius0+4) || (id>=Window0 && id<Window0+4) || (id>=Cap0 && id<Cap0+4)) {
             const double radii[]={4,8,12,20},windows[]={.040,.080,.120,.200},caps[]={1.5,2.5,4,6};
             if(id>=Cap0) view.local.cap=caps[id-Cap0]; else if(id>=Window0) view.local.window=windows[id-Window0]; else view.local.radius=radii[id-Radius0];
-            log(input.now(),0,pt::comparisonSettings(view.local)); view.candidate=1;
-            notice=L"Adjusted candidate 2 only; other algorithms still use the same original input.";
-        } else if(id>=Off && id<=Strong) { view.mode=static_cast<pt::Mode>(id-Off); view.comparisonView=4; }
-        else if(id>=Slow && id<=Fast) {
+            log(input.now(),0,pt::comparisonSettings(view.local)); view.candidate=0;
+            notice=L"Adjusted candidate 1 only; other algorithms still use the same original input.";
+        } else if(id>=Slow && id<=Fast) {
             input.cancelAll("Intended pace changed."); view.speed=id-Slow;
             log(input.now(),0,"Intended pace: "+std::to_string(view.speed)+" (0 slow, 1 normal, 2 fast; label only)");
         } else if(id>=Test0 && id<Test0+pt::testCount) {
@@ -240,7 +234,7 @@ public:
             if(!mayDiscard()) break;
             session={}; processor.clear(); renderer.invalidateCache(); loaded=false; replaying=false;
             view.zoom=1; view.comparisonView=0; view.selected=static_cast<std::size_t>(-1); live=true; dirty=false; notice=L"New recording. All candidates use original samples; G opens the comparison grid.";
-            session.metadata="Pen Trace Lab 0.3.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            session.metadata="Pen Trace Lab 0.4.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
             processor.setClockCalibration(input.calibration());
             recordEnvironment();
             break;
@@ -253,17 +247,14 @@ public:
             session=std::move(candidate); loaded=true; dirty=false; replaying=false; view.zoom=1;
             view.local=pt::recordedComparisonSettings(session); view.comparisonView=2;
             rebuild(); view.selected=0;
-            notice=L"Loaded: all-algorithm grid. [ / ] choose stroke; 1-6 choose candidate; D exaggerates differences."; break;
+            notice=L"Loaded: all-algorithm grid. [ / ] choose stroke; 1-5 choose candidate; D exaggerates differences."; break;
         }
-        case Samples: case Metrics: case MotionCsv: {
+        case Samples: case MotionCsv: {
             pause(); const auto path=chooseFile(window,true,true); if(path.empty()) break;
             if(id==Samples) atomicWrite(path,[&](std::ostream& out){pt::writeSamplesCsv(out,session);});
             else {
                 pt::Processor full(pt::clockCalibration(session)); for(const auto& s:session.samples) full.consume(s);
-                atomicWrite(path,[&](std::ostream& out){
-                    if(id==MotionCsv) pt::writeMotionCsv(out,full,view.mode);
-                    else pt::writeMetricsCsv(out,full,view.mode);
-                });
+                atomicWrite(path,[&](std::ostream& out){pt::writeRawMotionCsv(out,full);});
             }
             notice=L"CSV exported. Full original recording remains available."; break;
         }
@@ -308,7 +299,6 @@ public:
         case Raw: view.raw=!view.raw; break;
         case Filtered: view.filtered=!view.filtered; break;
         case Dots: view.dots=!view.dots; break;
-        case Fitted: view.fitted=!view.fitted; break;
         case SelectedOnly: view.selectedOnly=!view.selectedOnly; break;
         case Touch: view.touch=!view.touch; break;
         case Mouse: input.cancelAll("Mouse capture setting changed."); view.mouse=!view.mouse; break;
@@ -326,7 +316,7 @@ public:
                 L"Replay and change filters to compare identical strokes. CSV exports are for analysis.\n\n"
                 L"Solid blue = reported pen; coloured dashed = selected comparison candidate.\n"
                 L"Real-pen tests / F2: grey tracing guides only; no strokes are generated. F3: intended pace.\n"
-                L"Compare: all six candidates run independently, never stacked. 1-6 selects a candidate.\n"
+                L"Compare: all five candidates run independently, never stacked. 1-5 selects a candidate.\n"
                 L"G: side-by-side grid. D: difference offsets exaggerated x8 (not actual geometry).\n"
                 L"C: selected/live view. O: all overlays. Grid/difference pause capture.\n"
                 L"Local filters revise a bounded tail; One Euro/buffered filters can lag/end short.\n"
@@ -353,7 +343,7 @@ public:
             if(FAILED(renderer.initialize(window))) return -1;
             ready=true; SetMenu(window,menus()); updateLayout();
             if(!EnableMouseInPointer(TRUE)) notice=L"Mouse-as-pointer unavailable; pen/touch capture still enabled.";
-            session.metadata="Pen Trace Lab 0.3.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            session.metadata="Pen Trace Lab 0.4.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
             processor.setClockCalibration(input.calibration());
             recordEnvironment();
             SetTimer(window,1,16,nullptr); refreshMenus(); return 0;
@@ -412,8 +402,7 @@ public:
             else if(ctrl && wParam=='O') command(Open);
             else if(ctrl && wParam=='N') command(New);
             else if(wParam==VK_SPACE) command(Pause);
-            else if(wParam=='0') command(Off);
-            else if(wParam>='1' && wParam<='6') command(Candidate0+static_cast<UINT>(wParam-'1'));
+            else if(wParam>='1' && wParam<='5') command(Candidate0+static_cast<UINT>(wParam-'1'));
             else if(wParam=='G') command(LabGrid);
             else if(wParam=='D') command(LabDifference);
             else if(wParam=='C') command(LabSelected);

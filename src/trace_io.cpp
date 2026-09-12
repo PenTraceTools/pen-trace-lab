@@ -137,47 +137,25 @@ void writeSamplesCsv(std::ostream& out,const Session& session) {
         <<s.dpi<<','<<s.mapped<<','<<s.flags<<'\n';
     if(!out) throw std::runtime_error("Failed writing sample CSV.");
 }
-void writeMetricsCsv(std::ostream& out,const Processor& processor,Mode mode) {
+void writeRawMotionCsv(std::ostream& out,const Processor& processor) {
     out.imbue(std::locale::classic()); out<<std::setprecision(17);
-    out<<"stroke,kind,mode,points,ended,canceled,recovered_start,line_defined,straightness_rms_dip,straightness_p95_dip,straightness_max_dip,path_length_dip,duration_seconds,mean_interval_ms,p95_interval_ms,nonincreasing_times,gaps_over_50ms,displacement_rms_dip,displacement_max_dip,endpoint_displacement_dip,sampled_curve_deviation_dip,speed_valid_intervals,speed_invalid_intervals,speed_covered_seconds,mean_speed_dip_per_s,p95_speed_dip_per_s,max_speed_dip_per_s,local_variation_rms_dip,local_variation_samples,analysis_recovered_points,filter_version\n";
-    std::size_t index=0;
-    for(const auto& s:processor.strokes()) {
-        const auto path=filter(s,mode); const auto m=measure(s,path);
-        out<<++index<<','<<kindName(s.kind)<<','<<modeName(mode)<<','<<m.n<<','<<s.ended<<','<<s.canceled<<','<<s.recoveredStart<<','<<m.lineDefined<<','
-        <<m.rms<<','<<m.p95<<','<<m.maximum<<','<<m.pathLength<<','<<m.duration<<','<<m.meanIntervalMs<<','<<m.p95IntervalMs<<','<<m.nonIncreasing<<','<<m.gaps<<','
-        <<m.displacementRms<<','<<m.displacementMax<<','<<m.endpointDisplacement<<','<<curveDeviation(path,curve(path))<<','
-        <<m.speedIntervals<<','<<m.invalidSpeedIntervals<<','<<m.speedDuration<<',';
-        if(m.speedIntervals) out<<m.meanSpeed<<','<<m.p95Speed<<','<<m.maxSpeed;
-        else out<<",,"; // unavailable is not zero speed
-        out<<',';
-        if(m.localVariationSamples) out<<m.localVariationRms;
-        out<<','<<m.localVariationSamples<<','
-            <<std::count_if(s.points.begin(),s.points.end(),[](const auto& p){return p.timingRecovered;})<<",0.2.0\n";
-    }
-    if(!out) throw std::runtime_error("Failed writing metrics CSV.");
-}
-void writeMotionCsv(std::ostream& out,const Processor& processor,Mode mode) {
-    out.imbue(std::locale::classic()); out<<std::setprecision(17);
-    out<<"stroke,sequence,device_session_id,pointer,kind,mode,time_seconds,clock_source,raw_x_dip,raw_y_dip,filtered_x_dip,filtered_y_dip,dt_seconds,speed_status,raw_vx_dip_per_s,raw_vy_dip_per_s,raw_speed_dip_per_s,filtered_vx_dip_per_s,filtered_vy_dip_per_s,filtered_speed_dip_per_s,analysis_clock_recovered,filter_version\n";
+    out<<"stroke,sequence,device_session_id,pointer,kind,time_seconds,clock_source,raw_x_dip,raw_y_dip,dt_seconds,speed_status,raw_vx_dip_per_s,raw_vy_dip_per_s,raw_speed_dip_per_s,analysis_clock_recovered,analysis_version\n";
     std::size_t index=0;
     for(const auto& stroke:processor.strokes()) {
         ++index;
-        const auto raw=filter(stroke,Mode::Off),fitted=filter(stroke,mode);
-        const auto rawMotion=motion(stroke,raw),filteredMotion=motion(stroke,fitted);
+        const auto raw=rawPath(stroke);
+        const auto movement=motion(stroke,raw);
         for(std::size_t i=0;i<stroke.points.size();++i) {
-            const auto& s=stroke.points[i]; const auto& r=rawMotion[i]; const auto& f=filteredMotion[i];
-            out<<index<<','<<s.sequence<<','<<s.device<<','<<s.pointer<<','<<kindName(s.kind)<<','<<modeName(mode)<<','<<s.time<<','
-                <<static_cast<unsigned>(s.clock)<<','<<raw[i].x<<','<<raw[i].y<<','<<fitted[i].x<<','<<fitted[i].y<<',';
+            const auto& s=stroke.points[i]; const auto& r=movement[i];
+            out<<index<<','<<s.sequence<<','<<s.device<<','<<s.pointer<<','<<kindName(s.kind)<<','<<s.time<<','
+                <<static_cast<unsigned>(s.clock)<<','<<raw[i].x<<','<<raw[i].y<<',';
             if(i) out<<r.dt;
             out<<','<<motionStatusName(r.status)<<',';
             if(r.valid()) out<<r.velocity.x<<','<<r.velocity.y<<','<<r.speed;
             else out<<",,";
-            out<<',';
-            if(f.valid()) out<<f.velocity.x<<','<<f.velocity.y<<','<<f.speed;
-            else out<<",,";
-            out<<','<<s.timingRecovered<<",0.2.0\n";
+            out<<','<<s.timingRecovered<<",0.4.0\n";
         }
     }
-    if(!out) throw std::runtime_error("Failed writing motion CSV.");
+    if(!out) throw std::runtime_error("Failed writing raw motion CSV.");
 }
 }

@@ -10,8 +10,7 @@
 
 namespace pt {
 std::array<Candidate,candidateCount> candidates(LocalOptions o) {
-    return {{{"local40","Local 40 ms reference",Algorithm::Local,8,.040,2.5},
-        {"local_custom","Local adjustable",Algorithm::Local,o.radius,o.window,o.cap},
+    return {{{"local_custom","Local adjustable",Algorithm::Local,o.radius,o.window,o.cap},
         {"euro_responsive","One Euro responsive",Algorithm::OneEuro,0,0,6,3,.020,12},
         {"euro_smooth","One Euro smooth",Algorithm::OneEuro,0,0,10,1,.005,8},
         {"buffer80","Buffered average 80 ms",Algorithm::Buffered,0,.080,10},
@@ -30,12 +29,12 @@ std::vector<Candidate> sweepCandidates() {
 }
 std::string comparisonSettings(LocalOptions o) {
     std::ostringstream text; text.imbue(std::locale::classic()); text<<std::setprecision(17)
-        <<"Comparison v0.3.0 local "<<o.radius<<' '<<o.window<<' '<<o.cap; return text.str();
+        <<"Comparison v0.4.0 local "<<o.radius<<' '<<o.window<<' '<<o.cap; return text.str();
 }
 LocalOptions recordedComparisonSettings(const Session& session) {
     LocalOptions result;
-    const std::string prefix="Comparison v0.3.0 local ";
-    for(const auto& e:session.events) if(e.text.starts_with(prefix)) {
+    const std::string prefix="Comparison v0.4.0 local ", previous="Comparison v0.3.0 local ";
+    for(const auto& e:session.events) if(e.text.starts_with(prefix) || e.text.starts_with(previous)) {
         LocalOptions o; std::istringstream in(e.text.substr(prefix.size())); in.imbue(std::locale::classic());
         if(!(in>>o.radius>>o.window>>o.cap)) continue;
         in>>std::ws;
@@ -132,7 +131,7 @@ void validate(const Candidate& c) {
 Comparison compare(const Stroke& stroke,const Candidate& candidate,bool score) {
     validate(candidate); Comparison result; result.candidate=candidate;
     if(candidate.algorithm==Algorithm::OfflineGaussian && (!stroke.ended || stroke.canceled)) return result;
-    result.available=true; const auto raw=filter(stroke,Mode::Off); result.path=raw;
+    result.available=true; const auto raw=rawPath(stroke); result.path=raw;
     const auto movement=motion(stroke,raw);
     if(candidate.algorithm==Algorithm::Local) result.path=localFilter(stroke,candidate.radius,candidate.cap,candidate.window);
     else if(candidate.algorithm!=Algorithm::Raw) for(std::size_t first=0;first<raw.size();) {
@@ -175,7 +174,7 @@ void writeComparisonCsv(std::ostream& out,const Processor& processor,LocalOption
     out.imbue(std::locale::classic()); out<<std::setprecision(17);
     const auto catalog=candidates(options);
     auto list=sweep?sweepCandidates():std::vector<Candidate>(catalog.begin(),catalog.end());
-    if(sweep) list[1]=catalog[1]; // Keep the user's adjustable baseline in the sweep too.
+    if(sweep) list[0]=catalog[0]; // Keep the user's adjustable baseline in the sweep too.
     list.insert(list.begin(),{"raw","Reported reference",Algorithm::Raw});
     const char* common="version,stroke,candidate,execution,available,radius_dip,window_ms,cap_dip,min_cutoff_hz,beta,derivative_hz";
     out<<common;
@@ -183,10 +182,10 @@ void writeComparisonCsv(std::ostream& out,const Processor& processor,LocalOption
     else out<<",points,raw_speed_dip_s,variation_5dip,variation_10dip,variation_20dip,variation_samples_5,variation_samples_10,variation_samples_20,displacement_rms_dip,displacement_max_dip,endpoint_dip,nearest_path_lag_mean_ms,nearest_path_lag_p95_ms,lag_samples,raw_turn_displacement_max_dip,raw_turn_samples,closed_loop_area_ratio,invalid_speed_intervals\n";
     unsigned index=0;
     for(const auto& stroke:processor.strokes()) {
-        ++index; const auto rawMetrics=measure(stroke,filter(stroke,Mode::Off));
+        ++index; const auto rawMetrics=measure(stroke,rawPath(stroke));
         for(const auto& candidate:list) {
             const auto c=compare(stroke,candidate,!paths);
-            const auto prefix=[&](){out<<"0.3.0,"<<index<<','<<candidate.id<<','<<executionKind(candidate.algorithm)<<','<<c.available<<','
+            const auto prefix=[&](){out<<"0.4.0,"<<index<<','<<candidate.id<<','<<executionKind(candidate.algorithm)<<','<<c.available<<','
                 <<candidate.radius<<','<<candidate.window*1000<<','<<candidate.cap<<','<<candidate.cutoff<<','<<candidate.beta<<','<<candidate.derivative;};
             if(paths) {
                 if(!c.available) { prefix(); out<<",,,,,,,\n"; }

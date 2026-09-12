@@ -60,37 +60,34 @@ pt::Stroke diagonal(unsigned hz) {
 }
 void filters() {
     for(unsigned hz:{60u,120u,240u}) {
-        auto s=diagonal(hz); const auto raw=pt::filter(s,pt::Mode::Off);
+        auto s=diagonal(hz); const auto raw=pt::rawPath(s);
         for(std::size_t i=0;i<raw.size();++i) require(raw[i]==s.points[i].p,"Off must preserve points exactly");
-        for(auto mode:{pt::Mode::Gentle,pt::Mode::Steady,pt::Mode::Strong}) {
-            const auto f=pt::filter(s,mode); auto m=pt::measure(s,f);
+        for(double cap:{1.5,2.5,4.0}) {
+            const auto f=pt::localFilter(s,8,cap,.040); auto m=pt::measure(s,f);
             require(m.rms<pt::measure(s,raw).rms,"Filter should reduce synthetic 12 Hz diagonal noise");
-            if(mode==pt::Mode::Gentle) require(m.displacementMax<=1.50000001,"Gentle exceeded displacement budget");
+            require(m.displacementMax<=cap+1e-8,"Local filter exceeded displacement budget");
             auto rotated=s;
             for(auto& p:rotated.points) p.p={-p.p.y,p.p.x};
-            const auto r=pt::filter(rotated,mode);
+            const auto r=pt::localFilter(rotated,8,cap,.040);
             for(std::size_t i=0;i<f.size();++i)
                 require(near(r[i].x,-f[i].y) && near(r[i].y,f[i].x),"Filter not rotation symmetric");
         }
     }
     pt::Stroke equal; equal.points={point(0,0,0),point(1,5,5)}; equal.points[1].time=0;
-    require(pt::filter(equal,pt::Mode::Strong).back()==equal.points.back().p,"Bad timing fallback loses sample");
+    require(pt::localFilter(equal,12,4,.040).back()==equal.points.back().p,"Bad timing fallback loses sample");
     equal.points[1].time=1;
-    require(pt::filter(equal,pt::Mode::Strong).back()==equal.points.back().p,"Long gap should reset filter");
+    require(pt::localFilter(equal,12,4,.040).back()==equal.points.back().p,"Long gap should reset filter");
 }
 void metrics() {
     pt::Stroke s;
     for(unsigned i=0;i<100;++i) s.points.push_back(point(i,i,2*i+3));
-    const auto path=pt::filter(s,pt::Mode::Off); const auto m=pt::measure(s,path);
+    const auto path=pt::rawPath(s); const auto m=pt::measure(s,path);
     require(m.lineDefined && m.rms<1e-9,"Orthogonal line fit must recognize a straight diagonal");
     require(near(m.meanIntervalMs,1000.0/120),"Interval units incorrect");
     require(m.displacementMax==0,"Off displacement must be zero");
     pt::Stroke dot; dot.points.push_back(point(0,1,1));
-    require(!pt::measure(dot,pt::filter(dot,pt::Mode::Off)).lineDefined,"Dot does not define a line");
-    const std::vector<pt::Vec> corner={{0,0},{10,0},{10,10}};
-    const auto curve=pt::curve(corner);
-    require(curve.size()==17 && curve.front()==corner.front() && curve.back()==corner.back(),"Curve endpoints/subdivisions wrong");
-    require(pt::curveDeviation(corner,curve)>0,"Corner curve experiment should expose deviation");
+    require(!pt::measure(dot,pt::rawPath(dot)).lineDefined,"Dot does not define a line");
+
 }
 void recordings() {
     pt::Session session; session.metadata="Pen \"example\"; unicode: \xC3\xA9";
@@ -143,7 +140,7 @@ void speedMeasurements() {
     for(unsigned i=0;i<3;++i) {
         auto p=point(i,3.0*i,4.0*i); p.time=i*.01; s.points.push_back(p);
     }
-    const auto raw=pt::filter(s,pt::Mode::Off);
+    const auto raw=pt::rawPath(s);
     const auto v=pt::motion(s,raw);
     require(!v[0].valid() && v[1].valid(),"First sample must not invent speed");
     require(near(v[1].velocity.x,300) && near(v[1].velocity.y,400) && near(v[1].speed,500),"Speed/velocity units incorrect");
@@ -165,23 +162,20 @@ void speedMeasurements() {
     require(pt::motion(changed,raw)[1].status==pt::MotionStatus::CoordinateSpaceChanged,"DPI changes must not create speed spikes");
     changed=s;
     for(auto& p:changed.points) p.p={7,7};
-    require(pt::measure(changed,pt::filter(changed,pt::Mode::Off)).maxSpeed==0,"Stationary valid samples should have zero speed");
+    require(pt::measure(changed,pt::rawPath(changed)).maxSpeed==0,"Stationary valid samples should have zero speed");
     changed=s; changed.points[2].time=.03;
     const auto weighted=pt::measure(changed,raw);
     require(near(weighted.meanSpeed,10/.03),"Mean speed must be distance / usable time, not sample-averaged speed");
     pt::Processor p; for(const auto& sample:s.points) p.consume(sample);
-    std::ostringstream csv; pt::writeMotionCsv(csv,p,pt::Mode::Off);
+    std::ostringstream csv; pt::writeRawMotionCsv(csv,p);
     std::istringstream rows(csv.str()); std::string header,row;
     std::getline(rows,header); std::getline(rows,row);
     require(header.find("raw_speed_dip_per_s")!=std::string::npos,"Motion CSV missing speed column");
-    require(row.find("first_sample,,,,,,")!=std::string::npos,"Unknown speed must be blank, not zero");
+    require(row.find("first_sample,,,,")!=std::string::npos,"Unknown speed must be blank, not zero");
     const auto columns=[](const std::string& text){return std::count(text.begin(),text.end(),',');};
     require(columns(row)==columns(header),"First motion CSV row has incorrect column count");
     while(std::getline(rows,row)) require(columns(row)==columns(header),"Motion CSV column count differs between valid/invalid rows");
-    std::ostringstream summary; pt::writeMetricsCsv(summary,p,pt::Mode::Steady);
-    std::istringstream summaries(summary.str()); std::getline(summaries,header);
-    require(header.find("local_variation_rms_dip")!=std::string::npos && header.find("filter_version")!=std::string::npos,"Metric provenance missing");
-    while(std::getline(summaries,row)) require(columns(row)==columns(header),"Metric CSV column mismatch");
+
 }
 void clockRecovery() {
     const pt::ClockCalibration c{1000000000,10000000};
@@ -203,7 +197,7 @@ void clockRecovery() {
     require(session.samples[0].clock==pt::Clock::ReceiptFallback && session.samples[0].time==0,"Recovery mutated raw report");
     const auto& stroke=p.strokes()[0];
     require(stroke.points[0].timingRecovered,"Recovery provenance missing");
-    require(near(pt::measure(stroke,pt::filter(stroke,pt::Mode::Off)).meanSpeed,250),"Recovered cadence corrupted speed");
+    require(near(pt::measure(stroke,pt::rawPath(stroke)).meanSpeed,250),"Recovered cadence corrupted speed");
     auto marker=session.samples.back(); marker.boundary=true; marker.contact=false; p.consume(marker);
     require(p.diagnostics().recoveredTiming==50 && p.strokes()[0].canceled,"Boundary must not recover a fabricated clock");
     session.events.push_back({0,0,"Clock mapping: QPC origin=2; QPC frequency=3 Hz;"});
@@ -213,45 +207,44 @@ void clockRecovery() {
 }
 void boundedFiltering() {
     auto s=diagonal(240);
-    for(auto mode:{pt::Mode::Gentle,pt::Mode::Steady,pt::Mode::Strong}) {
-        const auto f=pt::filter(s,mode);
+    for(double cap:{1.5,2.5,4.0}) {
+        const auto f=pt::localFilter(s,8,cap,.040);
         require(f.front()==s.points.front().p && f.back()==s.points.back().p,"Filter endpoint moved");
-        const double cap=mode==pt::Mode::Gentle?1.5:mode==pt::Mode::Steady?2.5:4;
         require(pt::measure(s,f).displacementMax<=cap+1e-8,"Displacement budget exceeded");
-        auto prefix=s; prefix.points.resize(400); const auto early=pt::filter(prefix,mode);
+        auto prefix=s; prefix.points.resize(400); const auto early=pt::localFilter(prefix,8,cap,.040);
         for(std::size_t i=0;i<prefix.points.size();++i)
             if(prefix.points[i].time<prefix.points.back().time-.041)
                 require(pt::length(early[i]-f[i])<1e-8,"Filter revised points older than 40 ms");
         auto shifted=s; for(auto& p:shifted.points) p.p=p.p+pt::Vec{1100,-900};
-        const auto moved=pt::filter(shifted,mode);
+        const auto moved=pt::localFilter(shifted,8,cap,.040);
         for(std::size_t i=0;i<f.size();++i)
             require(pt::length(moved[i]-f[i]-pt::Vec{1100,-900})<1e-7,"Translation changed filter shape");
     }
     pt::Stroke line;
     for(unsigned i=0;i<120;++i) line.points.push_back(point(i,i*i*.01,i*i*.02));
-    auto straight=pt::filter(line,pt::Mode::Strong);
+    auto straight=pt::localFilter(line,12,4,.040);
     for(std::size_t i=0;i<straight.size();++i)
         require(pt::length(straight[i]-line.points[i].p)<1e-8,"Straight-line variable speed acquired lag");
     pt::Stroke corner;
     for(unsigned i=0;i<=40;++i) corner.points.push_back(point(i,i<=20?i:20,i<=20?0:i-20));
-    require(pt::filter(corner,pt::Mode::Strong)[20]==corner.points[20].p,"Right-angle vertex must survive");
+    require(pt::localFilter(corner,12,4,.040)[20]==corner.points[20].p,"Right-angle vertex must survive");
     auto unknown=s; for(auto& p:unknown.points) p.clock=pt::Clock::ReceiptFallback;
-    const auto untouched=pt::filter(unknown,pt::Mode::Strong);
+    const auto untouched=pt::localFilter(unknown,12,4,.040);
     for(std::size_t i=0;i<untouched.size();++i) require(untouched[i]==unknown.points[i].p,"Receipt batches must not drive smoothing");
     auto gap=s; gap.points[100].dpi=144;
-    const auto g=pt::filter(gap,pt::Mode::Strong);
+    const auto g=pt::localFilter(gap,12,4,.040);
     require(g[99]==gap.points[99].p && g[100]==gap.points[100].p && g[101]==gap.points[101].p,"Filter crossed coordinate-space boundary");
     pt::Stroke stationary; for(unsigned i=0;i<100;++i) stationary.points.push_back(point(i,7,8));
-    for(auto p:pt::filter(stationary,pt::Mode::Strong)) require(p==pt::Vec{7,8},"Stationary point changed");
+    for(auto p:pt::localFilter(stationary,12,4,.040)) require(p==pt::Vec{7,8},"Stationary point changed");
     pt::Stroke loop;
     for(unsigned i=0;i<=240;++i) {
         const double angle=2*std::numbers::pi*i/240;
         auto p=point(i,2*std::cos(angle),2*std::sin(angle)); p.time=i/240.0; loop.points.push_back(p);
     }
-    for(auto p:pt::filter(loop,pt::Mode::Strong)) require(pt::length(p)>1.9,"Small deliberate loop collapsed");
+    for(auto p:pt::localFilter(loop,12,4,.040)) require(pt::length(p)>1.9,"Small deliberate loop collapsed");
     auto slowCurve=s;
     for(auto& p:slowCurve.points) p.p={100*p.time,std::sin(2*std::numbers::pi*p.time)};
-    require(pt::measure(slowCurve,pt::filter(slowCurve,pt::Mode::Strong)).displacementMax<.1,"Gentle deliberate curvature overcorrected");
+    require(pt::measure(slowCurve,pt::localFilter(slowCurve,12,4,.040)).displacementMax<.1,"Gentle deliberate curvature overcorrected");
     require(pt::measure(line,straight).localVariationRms<1e-8,"Local variation must be zero for a straight line");
     pt::Processor terminal; terminal.consume(point(0,0,0));
     auto bad=point(1,1,1); bad.up=true; bad.contact=false; bad.p.x=std::numeric_limits<double>::quiet_NaN();
@@ -275,10 +268,10 @@ void realPenGuides() {
 }
 void comparisonAlgorithms() {
     auto s=diagonal(240); s.ended=true;
-    const auto raw=pt::filter(s,pt::Mode::Off);
+    const auto raw=pt::rawPath(s);
     const auto catalog=pt::candidates();
     const auto all=pt::compareAll(s);
-    require(all[0].path==pt::filter(s,pt::Mode::Steady),"40 ms control changed from legacy Steady");
+    for(const auto& candidate:catalog) require(candidate.id!="local40","Removed reference candidate returned");
     for(unsigned k=0;k<pt::candidateCount;++k) {
         const auto& c=all[k];
         require(c.available && c.path.size()==raw.size(),"Candidate unavailable or changed point count");
@@ -292,7 +285,7 @@ void comparisonAlgorithms() {
             require(pt::length(transformed[i]-pt::Vec{-c.path[i].y+300,c.path[i].x-700})<1e-6,"Candidate is not rotation/translation invariant");
         auto prefix=s; prefix.points.resize(400); prefix.ended=false;
         const auto partial=pt::compare(prefix,catalog[k],false);
-        if(k==5) require(!partial.available,"Offline algorithm leaked into live preview");
+        if(k==4) require(!partial.available,"Offline algorithm leaked into live preview");
         for(std::size_t i=0;i<partial.path.size();++i)
             if(catalog[k].algorithm!=pt::Algorithm::Local || prefix.points[i].time<prefix.points.back().time-catalog[k].window-.001)
                 require(pt::length(partial.path[i]-c.path[i])<1e-8,"Candidate revised a finalized/causal point");
@@ -311,12 +304,12 @@ void comparisonAlgorithms() {
             require(pt::length(gapResult.path[i+100]-suffixResult.path[i])<1e-8,"State leaked across time gap");
     }
     s.canceled=true;
-    require(!pt::compare(s,catalog[5]).available,"Canceled stroke accepted by offline smoother");
-    auto invalid=catalog[2]; invalid.cutoff=0;
+    require(!pt::compare(s,catalog[4]).available,"Canceled stroke accepted by offline smoother");
+    auto invalid=catalog[1]; invalid.cutoff=0;
     expectFailure([&]{pt::compare(s,invalid);});
-    invalid=catalog[1]; invalid.window=std::numeric_limits<double>::quiet_NaN();
+    invalid=catalog[0]; invalid.window=std::numeric_limits<double>::quiet_NaN();
     expectFailure([&]{pt::compare(s,invalid);});
-    invalid=catalog[1]; invalid.radius=-1;
+    invalid=catalog[0]; invalid.radius=-1;
     expectFailure([&]{pt::compare(s,invalid);});
     invalid=catalog[0]; invalid.algorithm=static_cast<pt::Algorithm>(999);
     expectFailure([&]{pt::compare(s,invalid);});
@@ -331,8 +324,8 @@ void comparisonTradeoffs() {
     const auto all=pt::compareAll(line);
     for(const auto& c:all) for(const auto& v:c.variation)
         require(v.samples && v.rms<1e-8,"Straight path acquired transverse variation");
-    for(unsigned k:{0u,1u,5u}) require(all[k].metrics.endpointDisplacement<1e-8,"Endpoint-preserving candidate changed endpoint");
-    for(unsigned k:{2u,3u,4u}) {
+    for(unsigned k:{0u,4u}) require(all[k].metrics.endpointDisplacement<1e-8,"Endpoint-preserving candidate changed endpoint");
+    for(unsigned k:{1u,2u,3u}) {
         require(all[k].metrics.endpointDisplacement>.1,"Causal smoothing should expose endpoint lag");
         require(all[k].lagMeanMs>1 && all[k].lagSamples>0,"Nearest-path lag proxy missed a straight-line delay");
     }
@@ -342,7 +335,7 @@ void comparisonTradeoffs() {
         p.p={30*p.time-n,30*p.time+n};
     }
     const auto compared=pt::compareAll(slow);
-    require(compared[1].variation[1].rms<compared[0].variation[1].rms,"Longer local window did not help controlled slow waviness");
+    require(compared[0].variation[1].rms<pt::localVariation(pt::localFilter(slow,8,2.5,.040),10).rms,"Longer local window did not help controlled slow waviness");
     pt::Stroke loop; loop.ended=true;
     for(unsigned i=0;i<=240;++i) {
         const double angle=2*std::numbers::pi*i/240;
@@ -355,6 +348,8 @@ void comparisonTradeoffs() {
 void comparisonExports() {
     pt::Session session;
     const pt::LocalOptions options{20,.200,6};
+    session.events.push_back({0,0,"Comparison v0.3.0 local 20 0.2 6"});
+    require(pt::recordedComparisonSettings(session)==options,"Older recording settings no longer supported");
     session.events.push_back({0,0,pt::comparisonSettings(options)});
     session.events.push_back({1,0,"Comparison v0.3.0 local 0 0 0"});
     require(pt::recordedComparisonSettings(session)==options,"Comparison settings not restored/validated");
@@ -373,15 +368,15 @@ void comparisonExports() {
         require(out.str().find("local_custom,bounded_revision,1,20,200,6,")!=std::string::npos,"Export ignored adjustable settings");
         require(out.str().find("offline120,finished_only,0,")!=std::string::npos,"Unavailable offline candidate not explicit");
     };
-    checkCsv(false,false,8); checkCsv(true,false,122); checkCsv(false,true,28);
-    require(pt::sweepCandidates().size()==26,"Unexpected parameter sweep coverage");
+    checkCsv(false,false,7); checkCsv(true,false,102); checkCsv(false,true,27);
+    require(pt::sweepCandidates().size()==25,"Unexpected parameter sweep coverage");
 }
 }
 int main() {
     unsigned failures=0;
     for(const auto& test:std::vector<std::pair<const char*,std::function<void()>>>{
         {"lifecycle",lifecycle},{"pointer isolation",pointers},{"filters",filters},
-        {"metrics and curves",metrics},{"recording validation",recordings},{"history retrieval",histories},
+        {"metrics",metrics},{"recording validation",recordings},{"history retrieval",histories},
         {"coordinate mapping",coordinateMapping},{"speed measurements",speedMeasurements},
         {"clock recovery",clockRecovery},{"bounded filtering",boundedFiltering},{"real-pen guides",realPenGuides},
         {"comparison algorithms",comparisonAlgorithms},{"comparison tradeoffs",comparisonTradeoffs},{"comparison exports",comparisonExports}}) {

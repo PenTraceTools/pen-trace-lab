@@ -1,5 +1,17 @@
 # Validation record — 2026-09-12
 
+## Version 0.4 removal of obsolete modes
+
+Removed the preset enum/API, Off/Gentle/Steady/Strong UI, old 40 ms reference
+candidate, curve renderer and old preset-specific CSV/CLI paths. Raw motion
+export remains with a simpler 16-column schema. Five independent candidates
+remain; Local adjustable is now key 1 and the default. Source recording format
+and old clock/settings recovery are preserved. Regression tests were migrated
+to the remaining APIs without removing input/motion/filter-boundary coverage.
+Build/test this revision via GitHub before using its portable package; previous
+0.3 CI results below do not constitute verification of changed 0.4 code.
+No local compilation or prerequisite installation is performed.
+
 ## Version 0.3 comparison lab
 
 Implementation adds six independent candidates, equal-scale comparison panels,

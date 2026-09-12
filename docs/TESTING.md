@@ -1,75 +1,40 @@
 # Verification and hardware acceptance
 
-## Current verification status
+## Verification workflow
 
-Source implementation and a source-level review are complete for this initial
-version. The source-inventory/manifest/PowerShell checks can run without a build.
-The C++ test executable and Windows GUI have **not** been compiled or run on the
-authoring machine, respecting the instruction to build on the other PC.
+See [VALIDATION.md](VALIDATION.md) for executed CI and real-recording checks.
+Run source checks without a compiler; build/test only on the authorized build PC
+or GitHub. Windows x64/ARM64 builds and Linux ASan/UBSan tests are provided.
+Physical pen feel and native GUI acceptance are separate from CI success.
 
-The following are provided, not claimed as executed here:
+Core regressions cover capture lifecycle, history deduplication, clock/mapping
+changes, source immutability, parsing, raw speed validity, local filter geometry,
+five-candidate independence, causal-prefix invariance, local revision horizons,
+offline availability, caps, stationary input, gap resets, settings compatibility
+and rectangular CSV rows. Synthetic fixtures test invariants, not real pen noise.
 
-- CTest core suite: pointer lifecycle, exact duplicates, equal-time state changes,
-  pointer isolation, recovered starts, filter identity/rotation/displacement,
-  synthetic noisy diagonals at 60/120/240 Hz, gap behavior, line metrics, curve
-  deviation, lossless serialization, malformed/truncated files and history retries.
-- Windows x64/ARM64 CI builds and host-compatible core test execution.
-- Linux core tests with address and undefined-behavior sanitizers.
-- Speed tests: vector units, stationary versus unavailable speed, time-weighted
-  means, timestamp gaps, clock/pointer/DPI transitions and CSV column consistency.
+## Software smoke test
 
-Run `scripts/verify-source.ps1` for source-only checks. Run the build helper on the
-authorized build PC for actual C++ compilation and CTest. Record the commit, build
-architecture, Windows version, test output and any warnings before publishing.
-
-## Software smoke test after building
-
-1. Launch the portable executable as a normal user; no installer/admin prompt.
-2. Choose Real-pen tests > Diagonal down. Grey targets should appear but the
-   report/stroke count must not increase merely from selecting a test. Draw with
-   your real pen. Use F2/F3 to change test and pace, and verify the event log.
-3. Switch Off/Gentle/Steady/Strong. Off should display your reported path unchanged;
-   the filter overlay should change while the blue original remains fixed.
-4. Toggle sample dots and curve overlay; inspect at 1x/2x/4x. Verify returning to
-   1x is required before resuming capture.
-5. Replay at 1x and 4x; verify final frame and last stroke appear. Show full recording.
-6. Save, reopen and re-export; compare all numeric source data and metric CSV.
-7. Try an invalid/truncated file. It must show an error and leave the prior recording
-   available. Cancel a save dialog and unsaved-data prompt; data must remain.
-8. Try an unwritable output path. It must report failure, not claim to have saved.
-9. Exercise menus by mouse, keyboard and pen. Check text and sidebar layout at your
-   actual display scaling. Inspect the sidebar on the smallest supported window.
-10. Close with unsaved data; verify Save / Discard / Cancel behavior.
-
-### Two-path and speed checks
-
-- With Raw and Filtered enabled, select Gentle/Steady/Strong: reported input must
-  remain solid blue and the algorithm comparison must be dashed orange. Zooming
-  must not alter source points or speed values. Short strokes/dots may be too
-  short to show a complete dash pattern; that is styling, not lost samples.
-- With Off, the two paths coincide and should be drawn once. Hiding Raw while
-  leaving Filtered enabled must still show the coincident path.
-- Verify exact first/last measured positions in every filter mode. During live
-  input, inspect the trailing 40 ms revision; do not mistake it for immutable ink.
-  Check right-angle vertices, tiny loops and reversals for loss of intended detail.
-- Open a version-0.1 recording with saved clock calibration and legacy fallback.
-  Check recovered-clock counts; sample CSV must retain original saved timestamps,
-  while motion CSV marks recovered analysis times. Save a copy and compare source
-  numeric fields. Original coordinates must remain identical.
-- Select the stationary-hold test. Hold on a target for 5 seconds at two pressures.
-  Grey targets are reference visuals only, never proof of physical position.
-- Export motion / speed CSV. Verify raw and filtered positions/velocities are
-  available together. First samples and unusable intervals must have an explicit
-  status and blank speed/velocity fields, never invented zero values.
-- Draw comparable slow/fast trials and inspect the speed distributions. Do not
-  treat a noisy coordinate derivative as independently measured physical speed.
-- Compare metric CSV in Off and another mode. Its speed describes the selected
-  path, while the sidebar speed describes the reported input. Motion CSV contains
-  both. Check status/count/coverage fields before comparing numeric summaries.
+1. Launch normally; no installer/admin prompt. Confirm version 0.4 and candidate
+   1 Local adjustable is selected. There must be no Legacy menu, preset choices,
+   curve overlay or key that re-enters an old mode.
+2. Choose a real-pen guide. Nothing should be recorded until you use the pen.
+3. Draw, lift, use G for five equal-scale panels, 1–5 to select, D for explicit
+   x8 displacement, C for selected overlay, O for all overlays, [ / ] for strokes.
+4. Toggle raw/candidate layers and dots. Return Z to 1x before Space resumes.
+5. Save/reopen 0.4 and older recordings. Raw data must remain unchanged; settings
+   events restore candidate 1. Loaded files require New before fresh drawing.
+6. Export raw samples/motion and all-candidate summary/paths/sweep. Check version,
+   candidate IDs/settings and invalid interval blanks. Summary always covers the
+   full recording. The removed CLI flag must be rejected.
+7. Replay at 1x/4x and show the full recording. Inspect unfinished/canceled strokes:
+   offline Gaussian must remain unavailable.
+8. Exercise file-dialog cancellation, save failure, malformed recordings, unsaved
+   close prompts, menus, sidebar scrolling, display scaling and minimum window.
 
 ## Pen/touch input checks on the target device
 
-- First set Filter > Off, and enter exact device/pen models and relevant firmware
+- Enter exact device/pen models and relevant firmware
   or driver versions in Notes. Record whether the device is charging, the trial
   speed and whether a physical guide is used. Resume after editing notes.
 - Confirm the line is under the tip across the canvas, including edges and at
@@ -86,7 +51,7 @@ architecture, Windows version, test output and any warnings before publishing.
   menu, resize/move the window and change DPI. Confirm strokes terminate safely
   and never join across unrelated contacts. Boundary markers should be visible
   in the file rather than disguised as pen coordinates.
-- Repeat under rendering load, with dots/curves both on and off. Look for history
+- Repeat under rendering load, with dots/candidate overlays both on and off. Look for history
   fallbacks, gaps, invalid records or unusually long paint calls. A smooth-looking
   line alone does not prove that acquisition was complete.
 
@@ -122,22 +87,3 @@ brush renderer, persistence or networking; those are a later integration stage.
 
 Neither a particular noise-reduction percentage nor a perfectly straight fitted
 line establishes that the true intended freehand path was recovered.
-# Version 0.3 comparison acceptance
-
-Core regression tests additionally cover all six candidates' independence,
-source immutability, displacement bounds, rotation/translation, causal-prefix
-invariance, local revision horizon, offline availability, clock/mapping isolation,
-stationary input, straight-line lag and endpoint trade-offs, controlled slow-wave
-smoothing, raw loop-area identity, settings round-trip and CSV column coverage.
-Synthetic cases are algorithm invariants, not substitutes for real pen tests.
-
-On the drawing PC, open a saved trace and check G (six equal-scale panels),
-1–6 selection, [ / ] stroke navigation, D (explicit x8 warning), C/O overlays,
-Z zoom and sidebar scrolling. Confirm each CSV's settings match the menu and
-that reopening restores candidate 2's settings. Check canceled/unfinished
-strokes mark offline smoothing unavailable. Ctrl+N starts new real input.
-
-Record slow/normal/fast diagonals and axes, then curves, loops, writing, V/W
-corners, dots and lifts. Compare smoothing AND changes to shape/endpoints; test
-live latency/revisions separately. See [COMPARISON.md](COMPARISON.md). A GUI build
-or offline metric improvement does not establish good physical pen feel.
