@@ -3,7 +3,7 @@
 A small native Windows pen/touch recorder and drawing diagnostic. Compare the
 positions Windows reports with filtered polylines, using the **same recorded stroke** for every comparison.
 
-**Status: experimental diagnostic, version 0.4.0.** Five independent candidates
+**Status: experimental diagnostic, version 0.4.1.** Five independent candidates
 can now be compared against identical real pen input, with a side-by-side grid,
 exaggerated difference inspection and parameter-sweep exports. See [VALIDATION.md](docs/VALIDATION.md)
 for verification boundaries. No hardware-accuracy or complete wobble-removal claim.
@@ -131,3 +131,10 @@ All data remains local. Recordings can contain handwriting, notes, screen
 coordinates and session-local device handles. Review them before sharing. Data
 files and build outputs are ignored by Git by default. The project is MIT-licensed;
 no remote repository is created or published automatically.
+
+## Shared filter source
+
+The local candidate now consumes the pinned [pen-stabilizer source library](https://github.com/alexiokay/pen-stabilizer)
+in `deps/pen-stabilizer`, shared with InfiniPaint. Run
+`git submodule update --init deps/pen-stabilizer` after pulling. No extra DLL or
+runtime installation is needed. See [SHARED_CORE.md](docs/SHARED_CORE.md).

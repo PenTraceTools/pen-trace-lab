@@ -350,6 +350,8 @@ void comparisonExports() {
     const pt::LocalOptions options{20,.200,6};
     session.events.push_back({0,0,"Comparison v0.3.0 local 20 0.2 6"});
     require(pt::recordedComparisonSettings(session)==options,"Older recording settings no longer supported");
+    session.events.push_back({0,0,"Comparison v0.4.0 local 20 0.2 6"});
+    require(pt::recordedComparisonSettings(session)==options,"0.4.0 settings compatibility");
     session.events.push_back({0,0,pt::comparisonSettings(options)});
     session.events.push_back({1,0,"Comparison v0.3.0 local 0 0 0"});
     require(pt::recordedComparisonSettings(session)==options,"Comparison settings not restored/validated");
@@ -359,11 +361,13 @@ void comparisonExports() {
     for(unsigned i=0;i<20;++i) processor.consume(point(i,i,i));
     const auto checkCsv=[&](bool paths,bool sweep,unsigned expectedRows) {
         std::ostringstream out; pt::writeComparisonCsv(out,processor,options,paths,sweep);
-        std::istringstream input(out.str()); std::string row; unsigned rows=0,columns=paths?18:29;
+        std::istringstream input(out.str()); std::string row; unsigned rows=0,columns=paths?21:32;
         while(std::getline(input,row)) {
             require(static_cast<unsigned>(std::count(row.begin(),row.end(),','))+1==columns,"Comparison CSV ragged row");
             ++rows;
         }
+        require(out.str().find("core_version,algorithm_revision,coordinate_units")!=std::string::npos,"Core provenance missing");
+        require(out.str().find(",0.1.0,1,DIP")!=std::string::npos,"Core revision missing");
         require(rows==expectedRows,"Comparison CSV missing candidates/points");
         require(out.str().find("local_custom,bounded_revision,1,20,200,6,")!=std::string::npos,"Export ignored adjustable settings");
         require(out.str().find("offline120,finished_only,0,")!=std::string::npos,"Unavailable offline candidate not explicit");

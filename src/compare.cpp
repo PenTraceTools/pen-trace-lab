@@ -1,4 +1,5 @@
 #include "compare.hpp"
+#include "../deps/pen-stabilizer/include/pen_stabilizer/stabilizer.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -29,12 +30,12 @@ std::vector<Candidate> sweepCandidates() {
 }
 std::string comparisonSettings(LocalOptions o) {
     std::ostringstream text; text.imbue(std::locale::classic()); text<<std::setprecision(17)
-        <<"Comparison v0.4.0 local "<<o.radius<<' '<<o.window<<' '<<o.cap; return text.str();
+        <<"Comparison v0.4.1 local "<<o.radius<<' '<<o.window<<' '<<o.cap; return text.str();
 }
 LocalOptions recordedComparisonSettings(const Session& session) {
     LocalOptions result;
-    const std::string prefix="Comparison v0.4.0 local ", previous="Comparison v0.3.0 local ";
-    for(const auto& e:session.events) if(e.text.starts_with(prefix) || e.text.starts_with(previous)) {
+    const std::string prefix="Comparison v0.4.1 local ", previous="Comparison v0.3.0 local ", v4="Comparison v0.4.0 local ";
+    for(const auto& e:session.events) if(e.text.starts_with(prefix) || e.text.starts_with(previous) || e.text.starts_with(v4)) {
         LocalOptions o; std::istringstream in(e.text.substr(prefix.size())); in.imbue(std::locale::classic());
         if(!(in>>o.radius>>o.window>>o.cap)) continue;
         in>>std::ws;
@@ -176,7 +177,7 @@ void writeComparisonCsv(std::ostream& out,const Processor& processor,LocalOption
     auto list=sweep?sweepCandidates():std::vector<Candidate>(catalog.begin(),catalog.end());
     if(sweep) list[0]=catalog[0]; // Keep the user's adjustable baseline in the sweep too.
     list.insert(list.begin(),{"raw","Reported reference",Algorithm::Raw});
-    const char* common="version,stroke,candidate,execution,available,radius_dip,window_ms,cap_dip,min_cutoff_hz,beta,derivative_hz";
+    const char* common="version,stroke,candidate,execution,available,radius_dip,window_ms,cap_dip,min_cutoff_hz,beta,derivative_hz,core_version,algorithm_revision,coordinate_units";
     out<<common;
     if(paths) out<<",sequence,time_seconds,clock_recovered,raw_x_dip,raw_y_dip,result_x_dip,result_y_dip\n";
     else out<<",points,raw_speed_dip_s,variation_5dip,variation_10dip,variation_20dip,variation_samples_5,variation_samples_10,variation_samples_20,displacement_rms_dip,displacement_max_dip,endpoint_dip,nearest_path_lag_mean_ms,nearest_path_lag_p95_ms,lag_samples,raw_turn_displacement_max_dip,raw_turn_samples,closed_loop_area_ratio,invalid_speed_intervals\n";
@@ -185,8 +186,12 @@ void writeComparisonCsv(std::ostream& out,const Processor& processor,LocalOption
         ++index; const auto rawMetrics=measure(stroke,rawPath(stroke));
         for(const auto& candidate:list) {
             const auto c=compare(stroke,candidate,!paths);
-            const auto prefix=[&](){out<<"0.4.0,"<<index<<','<<candidate.id<<','<<executionKind(candidate.algorithm)<<','<<c.available<<','
-                <<candidate.radius<<','<<candidate.window*1000<<','<<candidate.cap<<','<<candidate.cutoff<<','<<candidate.beta<<','<<candidate.derivative;};
+            const auto prefix=[&](){out<<"0.4.1,"<<index<<','<<candidate.id<<','<<executionKind(candidate.algorithm)<<','<<c.available<<','
+                <<candidate.radius<<','<<candidate.window*1000<<','<<candidate.cap<<','<<candidate.cutoff<<','<<candidate.beta<<','<<candidate.derivative;
+                if(candidate.algorithm==Algorithm::Local)
+                    out<<','<<pen_stabilizer::package_version<<','<<pen_stabilizer::algorithm_revision<<",DIP";
+                else out<<",,,DIP";
+            };
             if(paths) {
                 if(!c.available) { prefix(); out<<",,,,,,,\n"; }
                 else for(std::size_t i=0;i<stroke.points.size();++i) {

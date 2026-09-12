@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: git submodule update --init deps/pen-stabilizer
       - name: Configure portable core with sanitizers
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
       - run: cmake --build build --parallel
@@ -22,6 +23,7 @@ jobs:
         arch: [x64, ARM64]
     steps:
       - uses: actions/checkout@v4
+      - run: git submodule update --init deps/pen-stabilizer
       - name: Source checks
         shell: pwsh
         run: ./scripts/verify-source.ps1

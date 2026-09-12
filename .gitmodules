@@ -1,0 +1,3 @@
+[submodule "deps/pen-stabilizer"]
+	path = deps/pen-stabilizer
+	url = https://github.com/alexiokay/pen-stabilizer.git

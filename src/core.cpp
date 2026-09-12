@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "../deps/pen-stabilizer/include/pen_stabilizer/stabilizer.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -110,56 +111,19 @@ std::vector<Vec> localFilter(const Stroke& stroke,double radius,double cap,doubl
     if(!std::isfinite(radius) || !std::isfinite(cap) || !std::isfinite(window) ||
         radius<=0 || radius>100 || cap<=0 || cap>50 || window<=0 || window>1)
         throw std::invalid_argument("Invalid local filter settings");
-    std::vector<Vec> out; out.reserve(stroke.points.size());
-    for(const auto& s:stroke.points) out.push_back(s.p);
-    if(out.size()<3) return out;
-    const auto raw=out;
+    const auto raw=rawPath(stroke);
     const auto movement=motion(stroke,raw);
-    // Symmetric spatial integration avoids causal along-stroke lag and sample-
-    // density weighting. Only local-normal displacement is applied. This is an
-    // experimental comparison, not the independently measured true trajectory.
-    for(std::size_t first=0;first<raw.size();) {
-        std::size_t end=first+1;
-        while(end<raw.size() && movement[end].valid()) ++end;
-        const auto n=end-first;
-        std::vector<double> arc(n),times(n);
-        std::vector<Vec> area(n);
-        for(std::size_t k=0;k<n;++k) {
-            times[k]=stroke.points[first+k].time;
-            if(k) {
-                const double ds=length(raw[first+k]-raw[first+k-1]);
-                arc[k]=arc[k-1]+ds;
-                area[k]=area[k-1]+(raw[first+k]+raw[first+k-1])*(ds*.5);
-            }
-        }
-        const auto at=[&](double distance) {
-            auto hi=static_cast<std::size_t>(std::upper_bound(arc.begin(),arc.end(),distance)-arc.begin());
-            hi=std::clamp(hi,std::size_t{1},n-1);
-            const double ds=arc[hi]-arc[hi-1];
-            const double fraction=ds>0?(distance-arc[hi-1])/ds:0;
-            const auto p=raw[first+hi-1]+(raw[first+hi]-raw[first+hi-1])*fraction;
-            return std::pair{p,area[hi-1]+(raw[first+hi-1]+p)*((distance-arc[hi-1])*.5)};
-        };
-        for(std::size_t k=1;k+1<n;++k) {
-            const auto left=static_cast<std::size_t>(std::lower_bound(times.begin(),times.end(),times[k]-window)-times.begin());
-            const auto right=static_cast<std::size_t>(std::upper_bound(times.begin(),times.end(),times[k]+window)-times.begin()-1);
-            const double r=std::min({radius,arc[k]-arc[left],arc[right]-arc[k]});
-            if(r<1e-6) continue;
-            const auto [a,ia]=at(arc[k]-r); const auto [b,ib]=at(arc[k]+r);
-            const auto p=raw[first+k],u=p-a,v=b-p,tangent=b-a;
-            const double lu=length(u),lv=length(v),lt=length(tangent);
-            if(lu<1e-6 || lv<1e-6 || lt<1e-6) continue;
-            // Taper at turns between 30 and 60 degrees; preserve sharper corners.
-            const double cosine=std::clamp((u.x*v.x+u.y*v.y)/(lu*lv),-1.0,1.0);
-            const double corner=std::clamp((cosine-.5)/(.8660254037844386-.5),0.0,1.0);
-            const double edge=std::min({1.0,(times[k]-times.front())/window,(times.back()-times[k])/window});
-            const double gain=corner*edge*edge*(3-2*edge);
-            const Vec normal{-tangent.y/lt,tangent.x/lt},delta=(ib-ia)*(1/(2*r))-p;
-            const double offset=std::clamp(delta.x*normal.x+delta.y*normal.y,-cap,cap)*gain;
-            out[first+k]=p+normal*offset;
-        }
-        first=end;
+    pen_stabilizer::Stabilizer filter;
+    filter.reset({true,radius,window,cap});
+    for(std::size_t i=0;i<stroke.points.size();++i) {
+        const auto& s=stroke.points[i];
+        // Clock, identity and transform provenance remain the host's concern.
+        if(!filter.append({{s.p.x,s.p.y},s.time,1},i==0 || movement[i].valid()))
+            throw std::invalid_argument("Invalid sample passed to local filter");
     }
+    filter.finish(); // No extra correction at lift; identical production core.
+    std::vector<Vec> out; out.reserve(raw.size());
+    for(const auto p:filter.positions()) out.push_back({p.x,p.y});
     return out;
 }
 static double percentile(std::vector<double> v,double q) {

@@ -191,7 +191,7 @@ public:
         log(input.now(),0,input.clockDescription());
         log(input.now(),0,"Environment: native processor architecture="+std::to_string(info.wProcessorArchitecture)+
             "; window DPI="+std::to_string(GetDpiForWindow(window))+"; canvas DIP width="+std::to_string(l.right-l.left)+
-            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.4.0; test="+narrow(testName(view.test)));
+            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.4.1; test="+narrow(testName(view.test)));
         log(input.now(),0,"Intended pace: "+std::to_string(view.speed)+" (0 slow, 1 normal, 2 fast; label only)");
         log(input.now(),0,pt::comparisonSettings(view.local));
     }
@@ -234,7 +234,7 @@ public:
             if(!mayDiscard()) break;
             session={}; processor.clear(); renderer.invalidateCache(); loaded=false; replaying=false;
             view.zoom=1; view.comparisonView=0; view.selected=static_cast<std::size_t>(-1); live=true; dirty=false; notice=L"New recording. All candidates use original samples; G opens the comparison grid.";
-            session.metadata="Pen Trace Lab 0.4.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            session.metadata="Pen Trace Lab 0.4.1; Windows native pointer API; coordinates: canvas DIPs; local core=0.1.0; algorithm=1. Device: unknown; pen: unknown.";
             processor.setClockCalibration(input.calibration());
             recordEnvironment();
             break;
@@ -343,7 +343,7 @@ public:
             if(FAILED(renderer.initialize(window))) return -1;
             ready=true; SetMenu(window,menus()); updateLayout();
             if(!EnableMouseInPointer(TRUE)) notice=L"Mouse-as-pointer unavailable; pen/touch capture still enabled.";
-            session.metadata="Pen Trace Lab 0.4.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            session.metadata="Pen Trace Lab 0.4.1; Windows native pointer API; coordinates: canvas DIPs; local core=0.1.0; algorithm=1. Device: unknown; pen: unknown.";
             processor.setClockCalibration(input.calibration());
             recordEnvironment();
             SetTimer(window,1,16,nullptr); refreshMenus(); return 0;
