@@ -1,4 +1,5 @@
 #include "trace_io.hpp"
+#include <algorithm>
 #include <cmath>
 #include <charconv>
 #include <iomanip>
@@ -138,7 +139,7 @@ void writeSamplesCsv(std::ostream& out,const Session& session) {
 }
 void writeMetricsCsv(std::ostream& out,const Processor& processor,Mode mode) {
     out.imbue(std::locale::classic()); out<<std::setprecision(17);
-    out<<"stroke,kind,mode,points,ended,canceled,recovered_start,line_defined,straightness_rms_dip,straightness_p95_dip,straightness_max_dip,path_length_dip,duration_seconds,mean_interval_ms,p95_interval_ms,nonincreasing_times,gaps_over_50ms,displacement_rms_dip,displacement_max_dip,endpoint_displacement_dip,sampled_curve_deviation_dip,speed_valid_intervals,speed_invalid_intervals,speed_covered_seconds,mean_speed_dip_per_s,p95_speed_dip_per_s,max_speed_dip_per_s\n";
+    out<<"stroke,kind,mode,points,ended,canceled,recovered_start,line_defined,straightness_rms_dip,straightness_p95_dip,straightness_max_dip,path_length_dip,duration_seconds,mean_interval_ms,p95_interval_ms,nonincreasing_times,gaps_over_50ms,displacement_rms_dip,displacement_max_dip,endpoint_displacement_dip,sampled_curve_deviation_dip,speed_valid_intervals,speed_invalid_intervals,speed_covered_seconds,mean_speed_dip_per_s,p95_speed_dip_per_s,max_speed_dip_per_s,local_variation_rms_dip,local_variation_samples,analysis_recovered_points,filter_version\n";
     std::size_t index=0;
     for(const auto& s:processor.strokes()) {
         const auto path=filter(s,mode); const auto m=measure(s,path);
@@ -148,7 +149,10 @@ void writeMetricsCsv(std::ostream& out,const Processor& processor,Mode mode) {
         <<m.speedIntervals<<','<<m.invalidSpeedIntervals<<','<<m.speedDuration<<',';
         if(m.speedIntervals) out<<m.meanSpeed<<','<<m.p95Speed<<','<<m.maxSpeed;
         else out<<",,"; // unavailable is not zero speed
-        out<<'\n';
+        out<<',';
+        if(m.localVariationSamples) out<<m.localVariationRms;
+        out<<','<<m.localVariationSamples<<','
+            <<std::count_if(s.points.begin(),s.points.end(),[](const auto& p){return p.timingRecovered;})<<",0.2.0\n";
     }
     if(!out) throw std::runtime_error("Failed writing metrics CSV.");
 }

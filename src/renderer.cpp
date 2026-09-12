@@ -182,7 +182,7 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
         <<L"\nLegacy report clocks recovered: "<<d.recoveredTiming<<L"\nReport/receipt offsets: "<<d.clockOffsetReports
         <<L" (not pen latency)\nInvalid: "<<d.invalid<<L" | boundaries: "<<d.boundaries<<L"\nNormalization limit hits: "<<d.limits;
     target_->PushAxisAlignedClip(D2D1::RectF(x,128,x+280,l.bottom),D2D1_ANTIALIAS_MODE_ALIASED);
-    text(stats.str(),D2D1::RectF(x,132-view.sidebarScroll,x+280,1400-view.sidebarScroll),ink);
+    text(stats.str(),D2D1::RectF(x,132-view.sidebarScroll,x+280,2200-view.sidebarScroll),ink);
     target_->PopAxisAlignedClip();
     text(L"Space: pause/live   0-3: filter   [ / ]: stroke   Z: zoom   Ctrl+S: save   F1: help",D2D1::RectF(20,l.bottom+5,l.right+295,l.bottom+29),muted);
     // Metadata stays in the file; a short line is visible without hiding the canvas.

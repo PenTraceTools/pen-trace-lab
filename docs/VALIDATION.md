@@ -14,9 +14,22 @@ and a read-only analyzer. Regression cases cover clock-offset recovery, immutabl
 source data, bounds, endpoints, straight-line lag, rotation/translation, corner
 vertices, coordinate transitions, stationary input and guide/sample separation.
 
-Source checks passed locally. Remote build/test results will be recorded after
-the GitHub workflow completes. No compiler/SDK was installed or build run on the
-authoring PC. The revised GUI and physical feel still require target-device testing.
+Source checks passed locally. GitHub run 34714445835 for commit 3941ae7 passed
+Linux ASan/UBSan tests and Windows x64/ARM64 builds with host-compatible tests.
+The downloaded ARM64 console analyzer ran on the existing user recording:
+11,299 reports, 18 strokes, all 1,312 legacy fallback clocks recovered, zero
+nonincreasing contact intervals and zero gaps over 50 ms. All 18 strokes in all
+four modes had zero endpoint displacement. Source recording was not modified.
+
+For the comparable diagonal (stroke 8), new Strong local variation was .21827 DIP
+versus raw .39209 (about 44% lower), with maximum displacement 1.40182 DIP and
+endpoint displacement zero. Old Strong was about .2131 DIP with 8.07 DIP endpoint
+displacement. This is a better endpoint/displacement trade-off in this recording,
+not proof of a universally better filter or measured physical noise removal.
+
+No compiler/SDK was installed or build run on the authoring PC. The revised GUI
+and physical feel still require target-device testing. Subsequent export/UI/test
+follow-ups must pass their own GitHub run before shipping the final package.
 
 ## Executed on the authoring system
 

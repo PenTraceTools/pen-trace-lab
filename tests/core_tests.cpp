@@ -177,6 +177,10 @@ void speedMeasurements() {
     const auto columns=[](const std::string& text){return std::count(text.begin(),text.end(),',');};
     require(columns(row)==columns(header),"First motion CSV row has incorrect column count");
     while(std::getline(rows,row)) require(columns(row)==columns(header),"Motion CSV column count differs between valid/invalid rows");
+    std::ostringstream summary; pt::writeMetricsCsv(summary,p,pt::Mode::Steady);
+    std::istringstream summaries(summary.str()); std::getline(summaries,header);
+    require(header.find("local_variation_rms_dip")!=std::string::npos && header.find("filter_version")!=std::string::npos,"Metric provenance missing");
+    while(std::getline(summaries,row)) require(columns(row)==columns(header),"Metric CSV column mismatch");
 }
 void clockRecovery() {
     const pt::ClockCalibration c{1000000000,10000000};
@@ -238,11 +242,23 @@ void boundedFiltering() {
     require(g[99]==gap.points[99].p && g[100]==gap.points[100].p && g[101]==gap.points[101].p,"Filter crossed coordinate-space boundary");
     pt::Stroke stationary; for(unsigned i=0;i<100;++i) stationary.points.push_back(point(i,7,8));
     for(auto p:pt::filter(stationary,pt::Mode::Strong)) require(p==pt::Vec{7,8},"Stationary point changed");
+    pt::Stroke loop;
+    for(unsigned i=0;i<=240;++i) {
+        const double angle=2*std::numbers::pi*i/240;
+        auto p=point(i,2*std::cos(angle),2*std::sin(angle)); p.time=i/240.0; loop.points.push_back(p);
+    }
+    for(auto p:pt::filter(loop,pt::Mode::Strong)) require(pt::length(p)>1.9,"Small deliberate loop collapsed");
+    auto slowCurve=s;
+    for(auto& p:slowCurve.points) p.p={100*p.time,std::sin(2*std::numbers::pi*p.time)};
+    require(pt::measure(slowCurve,pt::filter(slowCurve,pt::Mode::Strong)).displacementMax<.1,"Gentle deliberate curvature overcorrected");
     require(pt::measure(line,straight).localVariationRms<1e-8,"Local variation must be zero for a straight line");
     pt::Processor terminal; terminal.consume(point(0,0,0));
     auto bad=point(1,1,1); bad.up=true; bad.contact=false; bad.p.x=std::numeric_limits<double>::quiet_NaN();
     terminal.consume(bad); terminal.consume(point(2,3,3));
     require(terminal.strokes().size()==2 && terminal.strokes()[0].canceled,"Invalid terminal report joined two strokes");
+    pt::Processor conflictingUp; conflictingUp.consume(point(0,0,0));
+    auto up=point(1,100,100); up.up=true; conflictingUp.consume(up);
+    require(conflictingUp.strokes()[0].points.size()==1 && conflictingUp.strokes()[0].ended,"UP with contact flag created a tail");
 }
 void realPenGuides() {
     pt::Processor p;

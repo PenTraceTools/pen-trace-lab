@@ -12,6 +12,9 @@ derived analysis only. Motion CSV adds `analysis_clock_recovered` and
 `filter_version` (0.2.0), so it is distinguishable from old One Euro exports.
 Reported-samples CSV still exports original stored times. Filter names in 0.2
 refer to the new local-normal algorithm, not the 0.1 implementation.
+Metric CSV adds local-variation RMS/coverage, recovered contact-point count and
+filter version. Local variation is unavailable for short/over-limit paths and
+paths with nonincreasing selected time or gaps; it is not a hardware-error metric.
 
 ```text
 PENTRACE 1

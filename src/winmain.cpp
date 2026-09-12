@@ -243,7 +243,13 @@ public:
             if(live) pause();
             else if(loaded) notice=L"Loaded data is read-only. Start a new recording to draw.";
             else if(view.zoom!=1) notice=L"Return inspection zoom to 1x before resuming capture.";
-            else { if(replaying) { replaying=false; rebuild(); } live=true; notice=L"Live capture resumed."; }
+            else {
+                if(replaying) { replaying=false; rebuild(); }
+                live=true;
+                log(input.now(),0,"Test: "+narrow(testName(view.test)));
+                log(input.now(),0,"Intended pace: "+std::to_string(view.speed)+" (0 slow, 1 normal, 2 fast; label only)");
+                notice=L"Live capture resumed. Draw with your real pen.";
+            }
             break;
         case Replay: case ReplayFast:
             pause(); if(session.samples.empty()) break;
@@ -345,7 +351,7 @@ public:
             return 0;
         }
         case WM_MOUSEWHEEL: case WM_POINTERWHEEL:
-            view.sidebarScroll=std::clamp(view.sidebarScroll-GET_WHEEL_DELTA_WPARAM(wParam)/120.0f*48,0.0f,500.0f);
+            view.sidebarScroll=std::clamp(view.sidebarScroll-GET_WHEEL_DELTA_WPARAM(wParam)/120.0f*48,0.0f,1200.0f);
             InvalidateRect(window,nullptr,FALSE); return 0;
         case WM_COMMAND: command(LOWORD(wParam)); return 0;
         case WM_KEYDOWN: {
@@ -362,7 +368,7 @@ public:
             else if(wParam==VK_F2) command(NextTest);
             else if(wParam==VK_F3) command(NextPace);
             else if(wParam==VK_NEXT || wParam==VK_PRIOR) {
-                view.sidebarScroll=std::clamp(view.sidebarScroll+(wParam==VK_NEXT?100.0f:-100.0f),0.0f,500.0f);
+                view.sidebarScroll=std::clamp(view.sidebarScroll+(wParam==VK_NEXT?100.0f:-100.0f),0.0f,1200.0f);
                 InvalidateRect(window,nullptr,FALSE);
             }
             return 0;
