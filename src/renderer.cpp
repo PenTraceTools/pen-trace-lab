@@ -206,7 +206,7 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     text(L"Stroke inspection",D2D1::RectF(x,92,x+280,122),ink,true);
     std::wostringstream stats; stats<<std::fixed<<std::setprecision(3);
     {
-        stats<<L"COMPARISON LAB: all 5 evaluated\n1-5: candidate | G: grid | D: difference\nO: all overlays | C: selected/live\nBlue = raw, coloured dashed = candidate\n";
+        stats<<L"Selected stroke: all 5 evaluated\n1-5: candidate | G: grid | D: difference\nO: all overlays | C: selected/live\nBlue = raw; dashed = SELECTED stroke only\n[ / ]: select an earlier stroke\n";
         const auto catalog=pt::candidates(view.local); const auto& candidate=catalog[view.candidate];
         stats<<L"Selected: "<<widen(candidate.name)<<L"\n"<<widen(pt::executionKind(candidate.algorithm))
             <<L" | window: "<<candidate.window*1000<<L" ms\nRadius: "<<candidate.radius<<L" | cap: "<<candidate.cap<<L" DIP\n";
