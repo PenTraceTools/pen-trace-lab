@@ -264,7 +264,7 @@ public:
         case SelectedOnly: view.selectedOnly=!view.selectedOnly; break;
         case Touch: view.touch=!view.touch; break;
         case Mouse: input.cancelAll("Mouse capture setting changed."); view.mouse=!view.mouse; break;
-        case Zoom: pause(); view.zoom=view.zoom==1?2:view.zoom==2?4:1; break;
+        case Zoom: pause(); view.zoom=view.zoom==1?2.0f:view.zoom==2?4.0f:1.0f; break;
         case Previous: case Next: {
             const auto n=processor.strokes().size(); if(!n) break;
             const auto selected=std::min(view.selected,n-1);
