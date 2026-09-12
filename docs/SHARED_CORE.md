@@ -1,8 +1,12 @@
 # Shared local-correction core (0.4.1)
 
-PenTraceLab and the InfiniPaint `graphite-ui` integration now consume
+[Pen Tools overview](https://github.com/alexiokay/pen-tools) connects the repositories.
+
+PenTraceLab, the InfiniPaint `graphite-ui` integration and
+[upstream proposal #98](https://github.com/ErrorAtLine0/infinipaint/pull/98) consume
 [pen-stabilizer](https://github.com/alexiokay/pen-stabilizer), package 0.1.0,
-algorithm revision 1, through a pinned Git submodule. There is no additional
+algorithm revision 1, through a Git submodule pinned to
+`adbdce4e902433fcd14fba16e08863f2ec909f79` (v0.1.0). There is no additional
 runtime DLL, executable, service or prerequisite installer.
 
 After pulling source on your build PC:
@@ -32,9 +36,14 @@ Library CI independently compares its output to pinned PenTraceLab 0.4.0 source
 at commit `ef6555a6defd12b8dde5afc408df4975eb4492b2`. Do not replace that oracle
 with a checkout that calls the shared core: that would compare code to itself.
 
-The diagnostic adapter uses the core\'s efficient batch entry point, evaluating
+The diagnostic adapter uses the core's efficient batch entry point, evaluating
 the same position math once per output point rather than replaying every
 intermediate tail. Completed comparisons are cached; active stroke comparisons
 are still recomputed. High-rate long-stroke performance and physical-pen acceptance
 need measurement. Pure-core tests do not establish GUI latency or hardware
 accuracy. The executable is built by CI/on the build PC, not this development PC.
+
+The app and library are versioned independently. Updating the library repository
+does not update an installed executable or a consumer's pin. See the
+[update workflow](https://github.com/alexiokay/pen-tools/blob/main/VERSIONING.md).
+The upstream PR is a draft proposal, not an already-merged upstream feature.

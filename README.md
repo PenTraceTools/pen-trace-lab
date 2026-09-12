@@ -1,5 +1,7 @@
 # Pen Trace Lab
 
+[Pen Tools overview](https://github.com/alexiokay/pen-tools) · [Shared versioning workflow](https://github.com/alexiokay/pen-tools/blob/main/VERSIONING.md)
+
 A small native Windows pen/touch recorder and drawing diagnostic. Compare the
 positions Windows reports with filtered polylines, using the **same recorded stroke** for every comparison.
 
