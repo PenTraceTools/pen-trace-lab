@@ -12,6 +12,7 @@ public:
     bool handle(HWND window,UINT message,WPARAM wParam,LPARAM lParam);
     void cancelAll(const char* reason);
     double now() const;
+    pt::ClockCalibration calibration() const { return {static_cast<std::uint64_t>(start_.QuadPart),static_cast<std::uint64_t>(frequency_.QuadPart)}; }
     std::string clockDescription() const;
     // Canvas origin is in client DIPs; acquisition is independent of inspection zoom.
     void setCanvas(double left,double top,double right,double bottom);
@@ -20,6 +21,7 @@ private:
     LARGE_INTEGER start_{},frequency_{};
     std::uint64_t sequence_{};
     std::map<std::uint32_t,pt::Sample> active_;
+    std::map<std::uintptr_t,unsigned> clockWarnings_;
     double left_{20},top_{90},right_{800},bottom_{600};
     template<class Info,class Getter,class Latest>
     void history(HWND window,UINT message,UINT32 id,Getter getter,Latest latest);

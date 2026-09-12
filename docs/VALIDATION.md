@@ -1,5 +1,23 @@
 # Validation record — 2026-09-12
 
+## Version 0.2 update (supersedes initial status below)
+
+The public repository is https://github.com/alexiokay/pen-trace-lab. The user ran
+the initial ARM64 portable app and supplied a real `.pentrace` recording. This
+establishes a successful launch/capture on that device, not full hardware acceptance.
+The initial source-only entries below describe the earlier creation phase.
+
+0.2 changes: independent report/receipt clock handling and legacy replay recovery,
+bounded local-normal filters with unchanged endpoints and a provisional 40 ms
+tail, real-pen guides instead of the in-app synthetic demo, local-variation metrics
+and a read-only analyzer. Regression cases cover clock-offset recovery, immutable
+source data, bounds, endpoints, straight-line lag, rotation/translation, corner
+vertices, coordinate transitions, stationary input and guide/sample separation.
+
+Source checks passed locally. Remote build/test results will be recorded after
+the GitHub workflow completes. No compiler/SDK was installed or build run on the
+authoring PC. The revised GUI and physical feel still require target-device testing.
+
 ## Executed on the authoring system
 
 - `scripts/verify-source.ps1`: passed source inventory, local quoted include

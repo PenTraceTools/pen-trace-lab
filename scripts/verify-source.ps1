@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskFiles = @(
-    'CMakeLists.txt','README.md','LICENSE','src/core.hpp','src/core.cpp','src/history.hpp',
+    'CMakeLists.txt','README.md','LICENSE','src/core.hpp','src/core.cpp','src/history.hpp','src/analyze.cpp',
     'src/trace_io.hpp','src/trace_io.cpp','src/win_input.hpp','src/win_input.cpp',
     'src/renderer.hpp','src/renderer.cpp','src/winmain.cpp','tests/core_tests.cpp',
     'resources/app.rc','resources/app.manifest','docs/BUILDING.md','docs/TESTING.md',

@@ -17,19 +17,20 @@ std::string narrow(const std::wstring& s) {
     WideCharToMultiByte(CP_UTF8,0,s.data(),static_cast<int>(s.size()),result.data(),count,nullptr,nullptr); return result;
 }
 const wchar_t* testName(unsigned test) {
-    static const wchar_t* names[]={L"Free drawing",L"Diagonal down",L"Diagonal up",L"Horizontal",L"Vertical",L"Curves and loops",L"Corners and tiny letters",L"Dots and pen lifts"};
-    return names[std::min(test,7u)];
+    static const wchar_t* names[]={L"Free drawing",L"Diagonal down",L"Diagonal up",L"Horizontal",L"Vertical",L"Curves and loops",L"Corners and tiny letters",L"Dots and pen lifts",L"Stationary pen hold"};
+    return names[std::min(test,pt::testCount-1)];
 }
 const wchar_t* testInstruction(unsigned test) {
-    static const wchar_t* instructions[]={L"Draw freely. Record your device and pen under Session > Notes.",
+    static const wchar_t* instructions[]={L"Draw with your real pen. Choose Real-pen tests for tracing guides.",
         L"Follow the diagonal in both directions. Repeat slowly, normally, then quickly.",
         L"Follow the diagonal in both directions. Repeat slowly, normally, then quickly.",
         L"Draw left to right and back. Compare with diagonals at the same speed.",
         L"Draw top to bottom and back. Repeat at different screen positions.",
         L"Draw shallow arcs, circles, spirals and tiny loops. Watch for lost detail.",
         L"Draw V, W, L, small e and figure-eight strokes. Check corners and crossings.",
-        L"Make dots, short flicks and light-pressure endings. Watch for tails or connections."};
-    return instructions[std::min(test,7u)];
+        L"Make dots, short flicks and light-pressure endings. Watch for tails or connections.",
+        L"Hold the tip on a cross for 5 seconds. Repeat with light then comfortable pressure."};
+    return instructions[std::min(test,pt::testCount-1)];
 }
 HRESULT Renderer::initialize(HWND window) {
     window_=window;
@@ -93,7 +94,7 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     const auto l=layout();
     const auto ink=D2D1::ColorF(0x17324D),muted=D2D1::ColorF(0x526579),blue=D2D1::ColorF(0x2469D8),orange=D2D1::ColorF(0xD16817),purple=D2D1::ColorF(0x9148BA);
     target_->BeginDraw(); target_->SetTransform(D2D1::Matrix3x2F::Identity()); target_->Clear(D2D1::ColorF(0xF2F5FA));
-    text(L"Pen Trace Lab",D2D1::RectF(20,10,280,42),ink,true);
+    text(L"Pen Trace Lab 0.2",D2D1::RectF(20,10,280,42),ink,true);
     text(status,D2D1::RectF(280,15,l.right+295,44),muted);
     text(std::wstring(testName(view.test))+L"  |  "+testInstruction(view.test),D2D1::RectF(20,48,l.right+295,86),muted);
     brush_->SetColor(D2D1::ColorF(D2D1::ColorF::White)); target_->FillRectangle(D2D1::RectF(l.left,l.top,l.right,l.bottom),brush_.Get());
@@ -103,12 +104,10 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     brush_->SetColor(D2D1::ColorF(0xE8EEF5));
     for(float x=0;x<w;x+=40) target_->DrawLine(D2D1::Point2F(x,0),D2D1::Point2F(x,h),brush_.Get());
     for(float y=0;y<h;y+=40) target_->DrawLine(D2D1::Point2F(0,y),D2D1::Point2F(w,y),brush_.Get());
-    if(view.zoom==1 && view.test>=1 && view.test<=4) {
-        pt::Vec a{w*.15,h*.2},b{w*.85,h*.8};
-        if(view.test==2) { a.y=h*.8; b.y=h*.2; }
-        if(view.test==3) a.y=b.y=h*.5;
-        if(view.test==4) a.x=b.x=w*.5;
-        line({a,b},D2D1::ColorF(0xBAC8DA),1);
+    if(view.zoom==1 && view.test) {
+        for(const auto& guide:pt::testGuides(view.test,w,h)) line(guide,D2D1::ColorF(0xBAC8DA),1,true);
+        text(L"GREY = target only. Draw over it with your pen; nothing is generated or snapped.",
+            D2D1::RectF(12,8,w-12,44),muted);
     }
     const auto& strokes=processor.strokes();
     const std::size_t selected=strokes.empty()?0:std::min(view.selected,strokes.size()-1);
@@ -122,6 +121,7 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
         D2D1::Matrix3x2F::Scale(view.zoom,view.zoom)*D2D1::Matrix3x2F::Translation(l.left+w*.5f,l.top+h*.5f));
     const std::size_t first=strokes.size()>100?strokes.size()-100:0;
     for(std::size_t i=0;i<strokes.size();++i) {
+        if(view.selectedOnly && i!=selected) continue;
         if(i<first && i!=selected) continue;
         const auto& s=strokes[i];
         auto& c=cache_[i];
@@ -147,6 +147,9 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
     std::wostringstream stats; stats<<std::fixed<<std::setprecision(3);
     stats<<L"Filter: "<<widen(pt::modeName(view.mode))<<L"\nSolid blue: reported pen\nDashed orange: filtered comparison\nGreen: touch | Purple: curve experiment\n";
     if(view.mode==pt::Mode::Off) stats<<L"Off: paths coincide; shown once.\n";
+    else stats<<L"Local sideways smoothing (experimental)\nNewest point / endpoints stay measured.\nLast 40 ms may revise as input arrives.\n";
+    static const wchar_t* speeds[]={L"Slow",L"Normal",L"Fast"};
+    stats<<L"\nReal-pen test: "<<testName(view.test)<<L"\nIntended pace: "<<speeds[std::min(view.speed,2u)]<<L" (a label, not measured)\nF2: next test | F3: next pace\nGrey guides are not recorded strokes.\n";
     stats<<L"\n";
     if(!strokes.empty()) {
         const auto& s=strokes[selected]; const auto& c=cache_[selected]; const auto& m=c.rawMetrics; const auto& f=c.filteredMetrics;
@@ -156,6 +159,8 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
         stats<<L"Straightness (only meaningful for lines)\n";
         if(m.lineDefined) stats<<L"Input RMS / P95 / max (DIP):\n"<<m.rms<<L" / "<<m.p95<<L" / "<<m.maximum<<L"\nFilter RMS: "<<f.rms<<L" DIP\n";
         else stats<<L"N/A: insufficient movement\n";
+        if(m.localVariationSamples && f.localVariationSamples)
+            stats<<L"Local variation RMS (10 DIP span):\nInput "<<m.localVariationRms<<L" / filter "<<f.localVariationRms<<L" DIP\nIncludes hand motion / intended curves.\n";
         stats<<L"\nFilter displacement RMS / max:\n"<<f.displacementRms<<L" / "<<f.displacementMax<<L" DIP\nEndpoint displacement: "<<f.endpointDisplacement<<L" DIP\n";
         stats<<L"Sampled curve deviation: "<<c.deviation<<L" DIP\n\n";
         stats<<L"Reported speed (estimated DIP/s)\n";
@@ -173,7 +178,9 @@ HRESULT Renderer::paint(const pt::Processor& processor,const ViewOptions& view,c
         }
     } else stats<<L"Draw with your pen to begin.\nMouse display: View menu.\n";
     const auto& d=processor.diagnostics();
-    stats<<L"\nReports: "<<d.reports<<L" | duplicates: "<<d.duplicates<<L"\nTiming anomalies: "<<d.nonIncreasingTimes<<L"\nInvalid: "<<d.invalid<<L" | boundaries: "<<d.boundaries<<L"\nNormalization limit hits: "<<d.limits;
+    stats<<L"\nReports: "<<d.reports<<L" | duplicates: "<<d.duplicates<<L"\nTiming anomalies: "<<d.nonIncreasingTimes
+        <<L"\nLegacy report clocks recovered: "<<d.recoveredTiming<<L"\nReport/receipt offsets: "<<d.clockOffsetReports
+        <<L" (not pen latency)\nInvalid: "<<d.invalid<<L" | boundaries: "<<d.boundaries<<L"\nNormalization limit hits: "<<d.limits;
     target_->PushAxisAlignedClip(D2D1::RectF(x,128,x+280,l.bottom),D2D1_ANTIALIAS_MODE_ALIASED);
     text(stats.str(),D2D1::RectF(x,132-view.sidebarScroll,x+280,1400-view.sidebarScroll),ink);
     target_->PopAxisAlignedClip();

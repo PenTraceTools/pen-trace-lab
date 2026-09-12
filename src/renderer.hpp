@@ -8,9 +8,10 @@
 
 struct ViewOptions {
     pt::Mode mode{pt::Mode::Off};
-    bool raw{true},filtered{true},dots{},fitted{},touch{true},mouse{false};
+    bool raw{true},filtered{true},dots{},fitted{},touch{true},mouse{false},selectedOnly{};
     float zoom{1},sidebarScroll{};
     unsigned test{};
+    unsigned speed{};
     std::size_t selected{static_cast<std::size_t>(-1)};
 };
 struct Layout { float left{20},top{90},right{800},bottom{600}; };

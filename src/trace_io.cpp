@@ -1,5 +1,6 @@
 #include "trace_io.hpp"
 #include <cmath>
+#include <charconv>
 #include <iomanip>
 #include <istream>
 #include <limits>
@@ -106,6 +107,25 @@ Session readTrace(std::istream& in) {
     }
     throw std::runtime_error("Incomplete recording: END marker missing.");
 }
+ClockCalibration clockCalibration(const Session& session) {
+    ClockCalibration result{};
+    for(const auto& event:session.events) {
+        const std::string prefix="Clock mapping: QPC origin=",separator="; QPC frequency=";
+        if(!event.text.starts_with(prefix)) continue;
+        const auto middle=event.text.find(separator,prefix.size());
+        if(middle==std::string::npos) return {};
+        const auto end=event.text.find(" Hz;",middle+separator.size());
+        if(end==std::string::npos) return {};
+        ClockCalibration candidate;
+        const auto* start=event.text.data();
+        const auto a=std::from_chars(start+prefix.size(),start+middle,candidate.origin);
+        const auto b=std::from_chars(start+middle+separator.size(),start+end,candidate.frequency);
+        if(a.ec!=std::errc{} || b.ec!=std::errc{} || a.ptr!=start+middle || b.ptr!=start+end || !candidate.frequency) return {};
+        if(result.frequency && (result.origin!=candidate.origin || result.frequency!=candidate.frequency)) return {};
+        result=candidate;
+    }
+    return result;
+}
 void writeSamplesCsv(std::ostream& out,const Session& session) {
     out.imbue(std::locale::classic()); out<<std::setprecision(17);
     out<<"sequence,device_session_id,pointer,kind,time_seconds,receipt_seconds,clock_source,x_dip,y_dip,contact,down,up,canceled,boundary,pressure,validity_mask,tilt_x,tilt_y,rotation,frame,history_count,batch_index,qpc,dwTime,dpi,mapped,flags\n";
@@ -134,7 +154,7 @@ void writeMetricsCsv(std::ostream& out,const Processor& processor,Mode mode) {
 }
 void writeMotionCsv(std::ostream& out,const Processor& processor,Mode mode) {
     out.imbue(std::locale::classic()); out<<std::setprecision(17);
-    out<<"stroke,sequence,device_session_id,pointer,kind,mode,time_seconds,clock_source,raw_x_dip,raw_y_dip,filtered_x_dip,filtered_y_dip,dt_seconds,speed_status,raw_vx_dip_per_s,raw_vy_dip_per_s,raw_speed_dip_per_s,filtered_vx_dip_per_s,filtered_vy_dip_per_s,filtered_speed_dip_per_s\n";
+    out<<"stroke,sequence,device_session_id,pointer,kind,mode,time_seconds,clock_source,raw_x_dip,raw_y_dip,filtered_x_dip,filtered_y_dip,dt_seconds,speed_status,raw_vx_dip_per_s,raw_vy_dip_per_s,raw_speed_dip_per_s,filtered_vx_dip_per_s,filtered_vy_dip_per_s,filtered_speed_dip_per_s,analysis_clock_recovered,filter_version\n";
     std::size_t index=0;
     for(const auto& stroke:processor.strokes()) {
         ++index;
@@ -151,7 +171,7 @@ void writeMotionCsv(std::ostream& out,const Processor& processor,Mode mode) {
             out<<',';
             if(f.valid()) out<<f.velocity.x<<','<<f.velocity.y<<','<<f.speed;
             else out<<",,";
-            out<<'\n';
+            out<<','<<s.timingRecovered<<",0.2.0\n";
         }
     }
     if(!out) throw std::runtime_error("Failed writing motion CSV.");

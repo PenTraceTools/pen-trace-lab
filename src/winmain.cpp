@@ -16,9 +16,9 @@
 
 namespace {
 enum Command : UINT {
-    New=100,Save,Open,Samples,Metrics,Notes,Exit,Pause,Replay,ReplayFast,Stop,Demo,ShowLog,MotionCsv,
-    Raw=200,Filtered,Dots,Fitted,Touch,Mouse,Zoom,Previous,Next,
-    Off=300,Gentle,Steady,Strong,Test0=400,Help=500
+    New=100,Save,Open,Samples,Metrics,Notes,Exit,Pause,Replay,ReplayFast,Stop,ShowLog,MotionCsv,
+    Raw=200,Filtered,Dots,Fitted,Touch,Mouse,Zoom,Previous,Next,SelectedOnly,
+    Off=300,Gentle,Steady,Strong,Test0=400,Help=500,NextTest,NextPace,Slow=600,Normal,Fast
 };
 struct NotesDialog { HWND edit{}; bool accepted{}; std::wstring value; };
 LRESULT CALLBACK notesProc(HWND window,UINT message,WPARAM wParam,LPARAM lParam) {
@@ -106,21 +106,26 @@ HMENU menus() {
     add(session,Samples,L"Export reported samples CSV..."); add(session,Metrics,L"Export per-stroke metrics CSV...");
     add(session,MotionCsv,L"Export motion / speed CSV...");
     add(session,ShowLog,L"Recent diagnostic events...");
-    add(session,Demo,L"Load synthetic demonstration"); add(session,Exit,L"Exit");
+    add(session,Exit,L"Exit");
     add(capture,Pause,L"Pause / resume live capture\tSpace"); add(capture,Replay,L"Replay recording at 1x");
     add(capture,ReplayFast,L"Replay recording at 4x"); add(capture,Stop,L"Show full recording / stop replay");
     add(view,Raw,L"Reported polyline (solid)"); add(view,Filtered,L"Filtered polyline (dashed)"); add(view,Dots,L"Reported sample dots");
     add(view,Fitted,L"Experimental curve overlay"); add(view,Touch,L"Show finger strokes");
     add(view,Mouse,L"Capture/show mouse (not a pen test)"); add(view,Zoom,L"Inspection zoom: 1x / 2x / 4x\tZ");
     add(view,Previous,L"Previous stroke\t["); add(view,Next,L"Next stroke\t]");
+    add(view,SelectedOnly,L"Show only selected stroke (keeps all data)");
     add(filter,Off,L"Off (baseline)\t0"); add(filter,Gentle,L"Gentle (1.5 DIP displacement cap)\t1");
-    add(filter,Steady,L"Steady\t2"); add(filter,Strong,L"Strong\t3");
-    for(unsigned i=0;i<8;++i) add(test,Test0+i,testName(i));
+    add(filter,Steady,L"Steady (2.5 DIP displacement cap)\t2"); add(filter,Strong,L"Strong (4 DIP displacement cap)\t3");
+    for(unsigned i=0;i<pt::testCount;++i) add(test,Test0+i,testName(i));
+    AppendMenuW(test,MF_SEPARATOR,0,nullptr);
+    add(test,NextTest,L"Next real-pen test\tF2");
+    add(test,Slow,L"Intended pace: slow"); add(test,Normal,L"Intended pace: normal"); add(test,Fast,L"Intended pace: fast");
+    add(test,NextPace,L"Next intended pace\tF3");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(session),L"Session");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(capture),L"Capture / replay");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(view),L"View");
     AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(filter),L"Filter");
-    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(test),L"Test"); add(bar,Help,L"Help");
+    AppendMenuW(bar,MF_POPUP,reinterpret_cast<UINT_PTR>(test),L"Real-pen tests"); add(bar,Help,L"Help");
     return bar;
 }
 class App {
@@ -144,7 +149,7 @@ public:
     }
     void pause() { input.cancelAll("Capture paused; active strokes ended as canceled."); live=false; }
     void rebuild() {
-        processor.clear(); for(const auto& s:session.samples) processor.consume(s);
+        processor.setClockCalibration(pt::clockCalibration(session)); for(const auto& s:session.samples) processor.consume(s);
         renderer.invalidateCache(); view.selected=static_cast<std::size_t>(-1);
     }
     bool save() {
@@ -167,27 +172,38 @@ public:
         log(input.now(),0,input.clockDescription());
         log(input.now(),0,"Environment: native processor architecture="+std::to_string(info.wProcessorArchitecture)+
             "; window DPI="+std::to_string(GetDpiForWindow(window))+"; canvas DIP width="+std::to_string(l.right-l.left)+
-            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.1.0; test="+narrow(testName(view.test)));
+            "; height="+std::to_string(l.bottom-l.top)+"; app version=0.2.0; test="+narrow(testName(view.test)));
+        log(input.now(),0,"Intended pace: "+std::to_string(view.speed)+" (0 slow, 1 normal, 2 fast; label only)");
     }
     void refreshMenus() {
         const HMENU menu=GetMenu(window);
         auto check=[&](UINT id,bool on){CheckMenuItem(menu,id,MF_BYCOMMAND|(on?MF_CHECKED:MF_UNCHECKED));};
         check(Raw,view.raw); check(Filtered,view.filtered); check(Dots,view.dots); check(Fitted,view.fitted);
         check(Touch,view.touch); check(Mouse,view.mouse); check(Pause,!live);
+        check(SelectedOnly,view.selectedOnly);
         CheckMenuRadioItem(menu,Off,Strong,Off+static_cast<UINT>(view.mode),MF_BYCOMMAND);
-        CheckMenuRadioItem(menu,Test0,Test0+7,Test0+view.test,MF_BYCOMMAND);
+        CheckMenuRadioItem(menu,Test0,Test0+pt::testCount-1,Test0+view.test,MF_BYCOMMAND);
+        CheckMenuRadioItem(menu,Slow,Fast,Slow+view.speed,MF_BYCOMMAND);
     }
     void command(UINT id) {
+        if(id==NextTest) id=Test0+(view.test+1)%pt::testCount;
+        if(id==NextPace) id=Slow+(view.speed+1)%3;
         if(id>=Off && id<=Strong) view.mode=static_cast<pt::Mode>(id-Off);
-        else if(id>=Test0 && id<Test0+8) {
+        else if(id>=Slow && id<=Fast) {
+            input.cancelAll("Intended pace changed."); view.speed=id-Slow;
+            log(input.now(),0,"Intended pace: "+std::to_string(view.speed)+" (0 slow, 1 normal, 2 fast; label only)");
+        } else if(id>=Test0 && id<Test0+pt::testCount) {
             input.cancelAll("Test changed."); view.test=id-Test0;
             log(input.now(),0,"Test: "+narrow(testName(view.test)));
+            notice=loaded?L"Guide only. Ctrl+N starts a real-pen recording; loaded data is unchanged.":
+                L"Trace the grey targets with your real pen. Space resumes if paused; F3 changes intended pace.";
         } else switch(id) {
         case New:
             if(!mayDiscard()) break;
             session={}; processor.clear(); renderer.invalidateCache(); loaded=false; replaying=false;
             view.zoom=1; view.selected=static_cast<std::size_t>(-1); live=true; dirty=false; notice=L"New recording. Add device/pen details under Session > Notes.";
-            session.metadata="Pen Trace Lab 0.1.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            session.metadata="Pen Trace Lab 0.2.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            processor.setClockCalibration(input.calibration());
             recordEnvironment();
             break;
         case Save: save(); break;
@@ -203,7 +219,7 @@ public:
             pause(); const auto path=chooseFile(window,true,true); if(path.empty()) break;
             if(id==Samples) atomicWrite(path,[&](std::ostream& out){pt::writeSamplesCsv(out,session);});
             else {
-                pt::Processor full; for(const auto& s:session.samples) full.consume(s);
+                pt::Processor full(pt::clockCalibration(session)); for(const auto& s:session.samples) full.consume(s);
                 atomicWrite(path,[&](std::ostream& out){
                     if(id==MotionCsv) pt::writeMotionCsv(out,full,view.mode);
                     else pt::writeMetricsCsv(out,full,view.mode);
@@ -225,31 +241,21 @@ public:
         case Exit: SendMessageW(window,WM_CLOSE,0,0); break;
         case Pause:
             if(live) pause();
-            else if(loaded) notice=L"Loaded/demo data is read-only. Start a new recording to draw.";
+            else if(loaded) notice=L"Loaded data is read-only. Start a new recording to draw.";
             else if(view.zoom!=1) notice=L"Return inspection zoom to 1x before resuming capture.";
             else { if(replaying) { replaying=false; rebuild(); } live=true; notice=L"Live capture resumed."; }
             break;
         case Replay: case ReplayFast:
             pause(); if(session.samples.empty()) break;
-            cursor=0; processor.clear(); renderer.invalidateCache(); replaying=true;
+            cursor=0; processor.setClockCalibration(pt::clockCalibration(session)); renderer.invalidateCache(); replaying=true;
             speed=id==Replay?1:4; replayStart=input.now(); replayOrigin=session.samples.front().receipt; break;
         case Stop:
             pause(); replaying=false; rebuild(); break;
-        case Demo:
-            if(!mayDiscard()) break;
-            session={}; session.metadata="SYNTHETIC DEMO: artificial 12 Hz diagonal noise, not a hardware measurement.";
-            for(unsigned i=0;i<=720;++i) {
-                const double t=i/240.0,noise=1.5*std::sin(t*2*3.141592653589793*12);
-                pt::Sample s; s.sequence=i+1; s.pointer=1; s.device=1; s.frame=i; s.qpc=i+1;
-                s.clock=pt::Clock::Qpc; s.time=s.receipt=t; s.contact=i<720; s.down=i==0; s.up=i==720;
-                s.p={70+140*t-noise,60+100*t+noise}; s.pressure=512; s.mask=1;
-                session.samples.push_back(s);
-            }
-            loaded=true; dirty=false; replaying=false; view.zoom=1; rebuild(); notice=L"Synthetic demonstration — not real pen data."; break;
         case Raw: view.raw=!view.raw; break;
         case Filtered: view.filtered=!view.filtered; break;
         case Dots: view.dots=!view.dots; break;
         case Fitted: view.fitted=!view.fitted; break;
+        case SelectedOnly: view.selectedOnly=!view.selectedOnly; break;
         case Touch: view.touch=!view.touch; break;
         case Mouse: input.cancelAll("Mouse capture setting changed."); view.mouse=!view.mouse; break;
         case Zoom: pause(); view.zoom=view.zoom==1?2:view.zoom==2?4:1; break;
@@ -265,7 +271,10 @@ public:
                 L"Save .pentrace to preserve all recorded reports, including hover/up and duplicates.\n"
                 L"Replay and change filters to compare identical strokes. CSV exports are for analysis.\n\n"
                 L"Solid blue = reported pen; green = touch; dashed orange = filtered; purple = curve.\n"
-                L"Choose filter 1-3 to see both paths. Off paths coincide and are drawn once.\n"
+                L"Real-pen tests / F2: grey tracing guides only; no strokes are generated. F3: intended pace.\n"
+                L"Choose filter 1-3 to compare local sideways smoothing. Endpoints stay measured.\n"
+                L"The last 40 ms may revise as reports arrive. Off is exact and shown once.\n"
+                L"Old recordings with clock calibration are reanalyzed without rewriting their source data.\n"
                 L"Motion CSV includes speed and X/Y velocity, derived from valid report intervals.\n"
                 L"Mouse capture is opt-in. Touch remains recorded when hidden.\n"
                 L"Zoom is inspection-only and pauses capture. Space resumes at 1x.\n\n"
@@ -286,7 +295,8 @@ public:
             if(FAILED(renderer.initialize(window))) return -1;
             ready=true; SetMenu(window,menus()); updateLayout();
             if(!EnableMouseInPointer(TRUE)) notice=L"Mouse-as-pointer unavailable; pen/touch capture still enabled.";
-            session.metadata="Pen Trace Lab 0.1.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            session.metadata="Pen Trace Lab 0.2.0; Windows native pointer API; coordinates: canvas DIPs. Device: unknown; pen: unknown.";
+            processor.setClockCalibration(input.calibration());
             recordEnvironment();
             SetTimer(window,1,16,nullptr); refreshMenus(); return 0;
         case WM_TIMER:
@@ -349,6 +359,8 @@ public:
             else if(wParam==VK_OEM_4) command(Previous);
             else if(wParam==VK_OEM_6) command(Next);
             else if(wParam==VK_F1) command(Help);
+            else if(wParam==VK_F2) command(NextTest);
+            else if(wParam==VK_F3) command(NextPace);
             else if(wParam==VK_NEXT || wParam==VK_PRIOR) {
                 view.sidebarScroll=std::clamp(view.sidebarScroll+(wParam==VK_NEXT?100.0f:-100.0f),0.0f,500.0f);
                 InvalidateRect(window,nullptr,FALSE);

@@ -4,10 +4,18 @@
 #include <limits>
 #include <numbers>
 #include <stdexcept>
+#include <utility>
 
 namespace pt {
 double length(Vec p) { return std::hypot(p.x,p.y); }
 bool finite(Vec p) { return std::isfinite(p.x) && std::isfinite(p.y); }
+std::optional<double> reportTime(std::uint64_t qpc,ClockCalibration c,double receipt) {
+    if(!qpc || !c.frequency || !std::isfinite(receipt)) return std::nullopt;
+    const double ticks=qpc>=c.origin ? static_cast<double>(qpc-c.origin) : -static_cast<double>(c.origin-qpc);
+    const double t=ticks/static_cast<double>(c.frequency);
+    if(!std::isfinite(t) || std::abs(t-receipt)>60) return std::nullopt;
+    return t;
+}
 Vec mapHimetric(Vec p,const std::array<std::int32_t,4>& device,const std::array<std::int32_t,4>& display) {
     const double dw=static_cast<double>(device[2])-device[0],dh=static_cast<double>(device[3])-device[1];
     if(dw<=0 || dh<=0) throw std::invalid_argument("Invalid device mapping rectangle.");
@@ -38,9 +46,15 @@ static bool sameReport(const Sample& a, const Sample& b) {
         a.contact==b.contact && a.down==b.down && a.up==b.up && a.canceled==b.canceled;
 }
 void Processor::clear() { states_.clear(); strokes_.clear(); diagnostics_={}; }
-void Processor::consume(const Sample& s) {
+void Processor::consume(const Sample& original) {
+    auto s=original; // Derived view only; never rewrite the source Session.
+    if(!s.boundary && s.clock==Clock::ReceiptFallback) {
+        if(const auto t=reportTime(s.qpc,calibration_,s.receipt)) {
+            s.time=*t; s.clock=Clock::Qpc; s.timingRecovered=true; ++diagnostics_.recoveredTiming;
+        }
+    }
+    if(s.clock==Clock::Qpc && s.time>s.receipt+.005) ++diagnostics_.clockOffsetReports;
     ++diagnostics_.reports;
-    if (!finite(s.p) || !std::isfinite(s.time)) { ++diagnostics_.invalid; return; }
     const Key key{s.device,s.pointer};
     if(states_.find(key)==states_.end() && states_.size()>=1024) { ++diagnostics_.limits; return; }
     auto& state=states_[key];
@@ -51,6 +65,11 @@ void Processor::consume(const Sample& s) {
         state.active=none;
         state.recent.clear();
         return;
+    }
+    if (!finite(s.p) || !std::isfinite(s.time)) {
+        ++diagnostics_.invalid;
+        if(state.active!=none) { strokes_[state.active].ended=true; strokes_[state.active].canceled=true; }
+        state.active=none; return;
     }
     if(std::any_of(state.recent.begin(),state.recent.end(),[&](const Sample& p){return sameReport(p,s);})) {
         ++diagnostics_.duplicates; return;
@@ -67,7 +86,7 @@ void Processor::consume(const Sample& s) {
         strokes_[state.active].canceled=true;
         state.active=none;
     }
-    if(s.contact && state.active==none && s.eligible) {
+    if(s.contact && !s.up && state.active==none && s.eligible) {
         if(strokes_.size()>=20000) { ++diagnostics_.limits; return; }
         Stroke stroke; stroke.kind=s.kind; stroke.pointer=s.pointer; stroke.device=s.device;
         stroke.recoveredStart=!s.down;
@@ -75,7 +94,7 @@ void Processor::consume(const Sample& s) {
     }
     if(state.active!=none) {
         auto& stroke=strokes_[state.active];
-        if(s.contact) {
+        if(s.contact && !s.up) {
             if(!stroke.points.empty()) {
                 const auto dt=s.time-stroke.points.back().time;
                 if(dt<=0) ++diagnostics_.nonIncreasingTimes;
@@ -86,31 +105,59 @@ void Processor::consume(const Sample& s) {
         if(s.up || !s.contact) { stroke.ended=true; state.active=none; }
     }
 }
-static double alpha(double cutoff,double dt) {
-    const double r=2*std::numbers::pi*cutoff*dt; return r/(1+r);
-}
 std::vector<Vec> filter(const Stroke& stroke,Mode mode) {
     std::vector<Vec> out; out.reserve(stroke.points.size());
-    if(stroke.points.empty()) return out;
-    Vec previous=stroke.points.front().p, result=previous, velocity{};
-    double time=stroke.points.front().time;
-    for(std::size_t i=0;i<stroke.points.size();++i) {
-        const auto& s=stroke.points[i]; const double dt=s.time-time;
-        if(mode==Mode::Off || i==0) result=s.p;
-        else if(dt<=0 || dt>0.25) { result=s.p; velocity={}; }
-        else {
-            const auto v=(s.p-previous)*(1/dt);
-            velocity=velocity+(v-velocity)*alpha(12,dt);
-            const double cutoff=mode==Mode::Gentle ? 6 : mode==Mode::Steady ? 3 : 1.5;
-            const double beta=mode==Mode::Gentle ? .035 : mode==Mode::Steady ? .025 : .018;
-            result=result+(s.p-result)*alpha(cutoff+beta*length(velocity),dt);
-            if(mode==Mode::Gentle) {
-                // Explicit displacement budget, not an estimate of true pen error.
-                const auto delta=result-s.p; const double d=length(delta);
-                if(d>1.5) result=s.p+delta*(1.5/d);
+    for(const auto& s:stroke.points) out.push_back(s.p);
+    if(mode==Mode::Off || out.size()<3) return out;
+    const auto raw=out;
+    const auto movement=motion(stroke,raw);
+    const double radius=mode==Mode::Gentle?4:mode==Mode::Steady?8:12;
+    const double cap=mode==Mode::Gentle?1.5:mode==Mode::Steady?2.5:4;
+    constexpr double window=.040; // At most 40 ms look-ahead; newest point stays raw.
+    // Symmetric spatial integration avoids causal along-stroke lag and sample-
+    // density weighting. Only local-normal displacement is applied. This is an
+    // experimental comparison, not the independently measured true trajectory.
+    for(std::size_t first=0;first<raw.size();) {
+        std::size_t end=first+1;
+        while(end<raw.size() && movement[end].valid()) ++end;
+        const auto n=end-first;
+        std::vector<double> arc(n),times(n);
+        std::vector<Vec> area(n);
+        for(std::size_t k=0;k<n;++k) {
+            times[k]=stroke.points[first+k].time;
+            if(k) {
+                const double ds=length(raw[first+k]-raw[first+k-1]);
+                arc[k]=arc[k-1]+ds;
+                area[k]=area[k-1]+(raw[first+k]+raw[first+k-1])*(ds*.5);
             }
         }
-        out.push_back(result); previous=s.p; time=s.time;
+        const auto at=[&](double distance) {
+            auto hi=static_cast<std::size_t>(std::upper_bound(arc.begin(),arc.end(),distance)-arc.begin());
+            hi=std::clamp(hi,std::size_t{1},n-1);
+            const double ds=arc[hi]-arc[hi-1];
+            const double fraction=ds>0?(distance-arc[hi-1])/ds:0;
+            const auto p=raw[first+hi-1]+(raw[first+hi]-raw[first+hi-1])*fraction;
+            return std::pair{p,area[hi-1]+(raw[first+hi-1]+p)*((distance-arc[hi-1])*.5)};
+        };
+        for(std::size_t k=1;k+1<n;++k) {
+            const auto left=static_cast<std::size_t>(std::lower_bound(times.begin(),times.end(),times[k]-window)-times.begin());
+            const auto right=static_cast<std::size_t>(std::upper_bound(times.begin(),times.end(),times[k]+window)-times.begin()-1);
+            const double r=std::min({radius,arc[k]-arc[left],arc[right]-arc[k]});
+            if(r<1e-6) continue;
+            const auto [a,ia]=at(arc[k]-r); const auto [b,ib]=at(arc[k]+r);
+            const auto p=raw[first+k],u=p-a,v=b-p,tangent=b-a;
+            const double lu=length(u),lv=length(v),lt=length(tangent);
+            if(lu<1e-6 || lv<1e-6 || lt<1e-6) continue;
+            // Taper at turns between 30 and 60 degrees; preserve sharper corners.
+            const double cosine=std::clamp((u.x*v.x+u.y*v.y)/(lu*lv),-1.0,1.0);
+            const double corner=std::clamp((cosine-.5)/(.8660254037844386-.5),0.0,1.0);
+            const double edge=std::min({1.0,(times[k]-times.front())/window,(times.back()-times[k])/window});
+            const double gain=corner*edge*edge*(3-2*edge);
+            const Vec normal{-tangent.y/lt,tangent.x/lt},delta=(ib-ia)*(1/(2*r))-p;
+            const double offset=std::clamp(delta.x*normal.x+delta.y*normal.y,-cap,cap)*gain;
+            out[first+k]=p+normal*offset;
+        }
+        first=end;
     }
     return out;
 }
@@ -197,6 +244,26 @@ Metrics measure(const Stroke& stroke,const std::vector<Vec>& path) {
     if(m.speedDuration>0) m.meanSpeed/=m.speedDuration;
     m.p95Speed=percentile(speeds,.95);
     if(!movement.empty()) { m.lastSpeedValid=movement.back().valid(); m.lastSpeed=movement.back().speed; }
+    // Local deviation from a 10-DIP arc-length chord, sampled every .5 DIP.
+    // This includes deliberate curvature/hand motion; it is not sensor accuracy.
+    std::vector<double> arc(path.size());
+    for(std::size_t i=1;i<path.size();++i) arc[i]=arc[i-1]+length(path[i]-path[i-1]);
+    if(arc.back()>10 && arc.back()<=100000 && m.nonIncreasing==0 && m.gaps==0) {
+        const auto at=[&](double s) {
+            auto hi=static_cast<std::size_t>(std::upper_bound(arc.begin(),arc.end(),s)-arc.begin());
+            hi=std::clamp(hi,std::size_t{1},path.size()-1);
+            const double ds=arc[hi]-arc[hi-1];
+            return path[hi-1]+(path[hi]-path[hi-1])*(ds>0?(s-arc[hi-1])/ds:0);
+        };
+        double squares=0;
+        for(double s=5;s<arc.back()-5;s+=.5) {
+            const auto a=at(s-5),b=at(s+5),p=at(s),v=b-a;
+            const double size=length(v); if(size<1e-6) continue;
+            const double d=(v.x*(p.y-a.y)-v.y*(p.x-a.x))/size;
+            squares+=d*d; ++m.localVariationSamples;
+        }
+        if(m.localVariationSamples) m.localVariationRms=std::sqrt(squares/m.localVariationSamples);
+    }
     return m;
 }
 std::vector<Vec> curve(const std::vector<Vec>& p,unsigned subdivisions) {
@@ -216,6 +283,42 @@ static double segmentDistance(Vec p,Vec a,Vec b) {
     const Vec d=b-a; const double sq=d.x*d.x+d.y*d.y;
     const Vec v=p-a; const double t=sq>0 ? std::clamp((v.x*d.x+v.y*d.y)/sq,0.0,1.0) : 0;
     return length(p-(a+d*t));
+}
+std::vector<std::vector<Vec>> testGuides(unsigned test,double w,double h) {
+    std::vector<std::vector<Vec>> guides;
+    if(!std::isfinite(w) || !std::isfinite(h) || w<=0 || h<=0) return guides;
+    if(test>=1 && test<=4) {
+        for(double offset:{-.12,0.0,.12}) {
+            Vec a{w*.18,h*(.24+offset)},b{w*.82,h*(.76+offset)};
+            if(test==2) { a.y=h*(.76+offset); b.y=h*(.24+offset); }
+            if(test==3) { a.x=w*.12; b.x=w*.88; a.y=b.y=h*(.5+offset*2); }
+            if(test==4) { a.x=b.x=w*(.5+offset*2); a.y=h*.12; b.y=h*.88; }
+            guides.push_back({a,b});
+        }
+    } else if(test==5 || test==6) {
+        for(unsigned j=0;j<3;++j) {
+            const double radius=std::min(w,h)*(.06+.04*j);
+            const Vec center{w*(.22+.28*j),h*.5};
+            std::vector<Vec> shape;
+            if(test==5) {
+                for(unsigned i=0;i<=96;++i) {
+                    const double a=2*std::numbers::pi*i/96;
+                    shape.push_back(center+Vec{std::cos(a),std::sin(a)}*radius);
+                }
+            } else {
+                shape={center+Vec{-radius,-radius},center+Vec{-radius*.5,radius},center,
+                    center+Vec{radius*.5,radius},center+Vec{radius,-radius}};
+            }
+            guides.push_back(std::move(shape));
+        }
+    } else if(test==7 || test==8) {
+        for(unsigned i=0;i<5;++i) {
+            const Vec center{w*(.15+.175*i),h*.5};
+            guides.push_back({center+Vec{-5,0},center+Vec{5,0}});
+            guides.push_back({center+Vec{0,-5},center+Vec{0,5}});
+        }
+    }
+    return guides;
 }
 double curveDeviation(const std::vector<Vec>& source,const std::vector<Vec>& fitted,unsigned subdivisions) {
     if(source.size()<2 || subdivisions==0 || fitted.size()!=(source.size()-1)*subdivisions+1) return 0;

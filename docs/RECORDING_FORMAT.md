@@ -6,6 +6,13 @@ do not affect it. Doubles are written with 17 significant digits. Metadata/event
 strings use C++ `std::quoted` escaping for quotes/backslashes; line breaks become
 spaces on save. The application does not accept partial recordings as complete.
 
+App 0.2 still writes this same version-1 source format. Opening an older file does
+not alter it. Saved clock calibration may repair legacy receipt fallback in the
+derived analysis only. Motion CSV adds `analysis_clock_recovered` and
+`filter_version` (0.2.0), so it is distinguishable from old One Euro exports.
+Reported-samples CSV still exports original stored times. Filter names in 0.2
+refer to the new local-normal algorithm, not the 0.1 implementation.
+
 ```text
 PENTRACE 1
 M "user notes"

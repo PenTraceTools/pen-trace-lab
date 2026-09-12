@@ -84,11 +84,21 @@ the baseline. No claim is made that selecting one field fixes calibration.
 [POINTER_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-pointer_info),
 [device rectangles](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getpointerdevicerects).
 
-QPC timestamps are mapped to process-relative seconds. Millisecond reports use a
-receipt-relative, wrap-aware fallback; they have lower precision and receipt-time
-uncertainty. Missing or implausible clocks use receipt time and are labeled.
-The original QPC and DWORD timestamps are retained. Timing gaps/anomalies are
-reported, not silently converted to ideal sample intervals.
+QPC timestamps are mapped to process-relative seconds using integer subtraction
+before conversion to double. Report and receipt are separate clocks for analysis:
+a small positive offset is flagged, not replaced with callback arrival time.
+Offsets above 5 ms are reported once per device/condition; a gross incompatibility
+over 60 seconds is rejected. These are diagnostic bounds, not Windows standards.
+Millisecond reports use a receipt-relative, wrap-aware fallback. If neither report
+clock is usable, receipt time is retained for replay only and affected filter/speed
+intervals remain unavailable. Nonpositive report intervals, clock/mapping changes
+and gaps over 50 ms split filtering windows rather than creating invented cadence.
+
+Old recordings retain original QPC fields and a calibration event. A validated,
+unambiguous origin/frequency lets Processor recover legacy receipt-fallback times
+in a derived copy. The Session and reported-samples CSV keep the original values.
+Recovery is counted and marked in motion CSV. Conflicting/missing calibration
+disables recovery. Synthetic boundaries never receive a recovered hardware time.
 
 Replay follows receipt times to reproduce batches approximately; filters use
 report times. Replay on a different display does not recreate the original
@@ -108,16 +118,36 @@ movement. Intervals are measured between retained in-contact reports; nonpositiv
 intervals are counted separately, not included in the positive-interval mean.
 Gaps exceed 50 ms; that is a diagnostic threshold, not a hardware certification rule.
 
-One Euro is an explicitly experimental baseline:
+Version 0.2 replaces the One Euro comparison with experimental bounded local
+normal smoothing. It integrates the measured piecewise-linear path uniformly by
+arc length over a symmetric neighbourhood. The local chord defines a tangent;
+only the normal component of the difference to the neighbourhood mean is applied.
+There is no global straight-line fit, reference-guide snapping or prediction.
 
-- shared vector-speed cutoff preserves rotational symmetry;
-- Gentle: minimum cutoff 6 Hz, beta .035, displacement capped at 1.5 DIPs;
-- Steady: minimum cutoff 3 Hz, beta .025;
-- Strong: minimum cutoff 1.5 Hz, beta .018;
-- derivative cutoff 12 Hz; nonpositive dt or gaps over .25 seconds reset to input.
+- Gentle / Steady / Strong: spatial radii 4 / 8 / 12 DIPs and displacement caps
+  1.5 / 2.5 / 4 DIPs respectively. These are experimental, not device-calibrated.
+- Both sides of the neighbourhood are limited to 40 ms of valid report time.
+  The current last point stays raw; the trailing 40 ms can revise as more input
+  arrives. This bounded-look-ahead comparison is NOT a drop-in immutable live-ink
+  pipeline. Integration into painting needs a provisional tail and compositing tests.
+- Start/end positions stay exactly measured; no extrapolated tails or synthetic
+  pen-up positions. Endpoint gain tapers over at most 40 ms, even at slow speeds.
+- Local turns between 30 and 60 degrees attenuate correction; sharper turns and
+  reversals get no correction at that vertex. This heuristic cannot guarantee
+  preservation of every intentional detail. Test small loops and writing.
+- Invalid timing, pointer, clock or coordinate-space transitions split windows.
+- Uniform arc-length integration avoids weighting one location more heavily just
+  because reports arrived in a dense batch. Complexity is O(n log n).
 
-These constants are not calibrated for a particular device. No prediction or
-automatic shape recognition is used. [One Euro authors' tuning guidance](https://gery.casiez.net/1euro/).
+Local variation RMS additionally measures perpendicular deviation from a chord
+spanning 10 DIPs along the path, sampled every .5 DIP. It includes hand movement
+and intended curvature, not just noise. Short paths and paths over 100,000 DIPs
+are unavailable (bounded analysis work). Compare like-for-like shapes and speeds.
+
+Real-pen tests draw grey reference geometry only. Those points have no input to
+Processor or filtering. The artificial demo was removed from the user-facing app;
+synthetic input remains in automated regression tests, where known geometry can
+check invariants but cannot establish physical pen performance.
 
 ## Rendering comparison
 

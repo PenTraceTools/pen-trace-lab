@@ -5,6 +5,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <numbers>
 #include <sstream>
 #include <stdexcept>
@@ -177,13 +178,92 @@ void speedMeasurements() {
     require(columns(row)==columns(header),"First motion CSV row has incorrect column count");
     while(std::getline(rows,row)) require(columns(row)==columns(header),"Motion CSV column count differs between valid/invalid rows");
 }
+void clockRecovery() {
+    const pt::ClockCalibration c{1000000000,10000000};
+    require(near(*pt::reportTime(c.origin+230000,c,0),.023),"23 ms clock offset must retain QPC");
+    require(near(*pt::reportTime(c.origin-10000,c,0),-.001),"Signed clock subtraction failed");
+    require(!pt::reportTime(0,c,0) && !pt::reportTime(c.origin,{},0),"Missing calibration must not invent timestamps");
+    require(!pt::reportTime(c.origin+1000000000,c,0),"Gross clock mismatch should be unavailable");
+    pt::Session session;
+    session.events.push_back({0,0,"Clock mapping: QPC origin=1000000000; QPC frequency=10000000 Hz; time/receipt units=seconds."});
+    const auto calibration=pt::clockCalibration(session);
+    require(calibration.origin==c.origin && calibration.frequency==c.frequency,"Saved calibration not parsed");
+    pt::Processor p(calibration);
+    for(unsigned i=0;i<50;++i) {
+        auto s=point(i,i,0); s.qpc=c.origin+230000+i*40000;
+        s.clock=pt::Clock::ReceiptFallback; s.receipt=s.time=i*.004;
+        session.samples.push_back(s); p.consume(s);
+    }
+    require(p.diagnostics().recoveredTiming==50 && p.diagnostics().nonIncreasingTimes==0,"Legacy fallback recovery failed");
+    require(session.samples[0].clock==pt::Clock::ReceiptFallback && session.samples[0].time==0,"Recovery mutated raw report");
+    const auto& stroke=p.strokes()[0];
+    require(stroke.points[0].timingRecovered,"Recovery provenance missing");
+    require(near(pt::measure(stroke,pt::filter(stroke,pt::Mode::Off)).meanSpeed,250),"Recovered cadence corrupted speed");
+    auto marker=session.samples.back(); marker.boundary=true; marker.contact=false; p.consume(marker);
+    require(p.diagnostics().recoveredTiming==50 && p.strokes()[0].canceled,"Boundary must not recover a fabricated clock");
+    session.events.push_back({0,0,"Clock mapping: QPC origin=2; QPC frequency=3 Hz;"});
+    require(!pt::clockCalibration(session).frequency,"Conflicting calibrations must not be guessed");
+    session.events={{0,0,"Clock mapping: QPC origin=bad; QPC frequency=0 Hz;"}};
+    require(!pt::clockCalibration(session).frequency,"Invalid calibration accepted");
+}
+void boundedFiltering() {
+    auto s=diagonal(240);
+    for(auto mode:{pt::Mode::Gentle,pt::Mode::Steady,pt::Mode::Strong}) {
+        const auto f=pt::filter(s,mode);
+        require(f.front()==s.points.front().p && f.back()==s.points.back().p,"Filter endpoint moved");
+        const double cap=mode==pt::Mode::Gentle?1.5:mode==pt::Mode::Steady?2.5:4;
+        require(pt::measure(s,f).displacementMax<=cap+1e-8,"Displacement budget exceeded");
+        auto prefix=s; prefix.points.resize(400); const auto early=pt::filter(prefix,mode);
+        for(std::size_t i=0;i<prefix.points.size();++i)
+            if(prefix.points[i].time<prefix.points.back().time-.041)
+                require(pt::length(early[i]-f[i])<1e-8,"Filter revised points older than 40 ms");
+        auto shifted=s; for(auto& p:shifted.points) p.p=p.p+pt::Vec{1100,-900};
+        const auto moved=pt::filter(shifted,mode);
+        for(std::size_t i=0;i<f.size();++i)
+            require(pt::length(moved[i]-f[i]-pt::Vec{1100,-900})<1e-7,"Translation changed filter shape");
+    }
+    pt::Stroke line;
+    for(unsigned i=0;i<120;++i) line.points.push_back(point(i,i*i*.01,i*i*.02));
+    auto straight=pt::filter(line,pt::Mode::Strong);
+    for(std::size_t i=0;i<straight.size();++i)
+        require(pt::length(straight[i]-line.points[i].p)<1e-8,"Straight-line variable speed acquired lag");
+    pt::Stroke corner;
+    for(unsigned i=0;i<=40;++i) corner.points.push_back(point(i,i<=20?i:20,i<=20?0:i-20));
+    require(pt::filter(corner,pt::Mode::Strong)[20]==corner.points[20].p,"Right-angle vertex must survive");
+    auto unknown=s; for(auto& p:unknown.points) p.clock=pt::Clock::ReceiptFallback;
+    const auto untouched=pt::filter(unknown,pt::Mode::Strong);
+    for(std::size_t i=0;i<untouched.size();++i) require(untouched[i]==unknown.points[i].p,"Receipt batches must not drive smoothing");
+    auto gap=s; gap.points[100].dpi=144;
+    const auto g=pt::filter(gap,pt::Mode::Strong);
+    require(g[99]==gap.points[99].p && g[100]==gap.points[100].p && g[101]==gap.points[101].p,"Filter crossed coordinate-space boundary");
+    pt::Stroke stationary; for(unsigned i=0;i<100;++i) stationary.points.push_back(point(i,7,8));
+    for(auto p:pt::filter(stationary,pt::Mode::Strong)) require(p==pt::Vec{7,8},"Stationary point changed");
+    require(pt::measure(line,straight).localVariationRms<1e-8,"Local variation must be zero for a straight line");
+    pt::Processor terminal; terminal.consume(point(0,0,0));
+    auto bad=point(1,1,1); bad.up=true; bad.contact=false; bad.p.x=std::numeric_limits<double>::quiet_NaN();
+    terminal.consume(bad); terminal.consume(point(2,3,3));
+    require(terminal.strokes().size()==2 && terminal.strokes()[0].canceled,"Invalid terminal report joined two strokes");
+}
+void realPenGuides() {
+    pt::Processor p;
+    require(pt::testGuides(0,800,600).empty(),"Free drawing should not contain targets");
+    for(unsigned test=1;test<pt::testCount;++test) {
+        const auto guides=pt::testGuides(test,800,600);
+        require(!guides.empty(),"Real-pen test missing its visual target");
+        for(const auto& guide:guides) for(auto v:guide)
+            require(pt::finite(v) && v.x>=0 && v.y>=0 && v.x<=800 && v.y<=600,"Guide outside canvas");
+    }
+    require(p.strokes().empty() && p.diagnostics().reports==0,"Guides fabricated recorded samples");
+    require(pt::testGuides(1,-1,0).empty(),"Invalid canvas should not generate guides");
+}
 }
 int main() {
     unsigned failures=0;
     for(const auto& test:std::vector<std::pair<const char*,std::function<void()>>>{
         {"lifecycle",lifecycle},{"pointer isolation",pointers},{"filters",filters},
         {"metrics and curves",metrics},{"recording validation",recordings},{"history retrieval",histories},
-        {"coordinate mapping",coordinateMapping},{"speed measurements",speedMeasurements}}) {
+        {"coordinate mapping",coordinateMapping},{"speed measurements",speedMeasurements},
+        {"clock recovery",clockRecovery},{"bounded filtering",boundedFiltering},{"real-pen guides",realPenGuides}}) {
         try {test.second(); std::cout<<"PASS "<<test.first<<'\n';}
         catch(const std::exception& e) {++failures; std::cerr<<"FAIL "<<test.first<<": "<<e.what()<<'\n';}
     }

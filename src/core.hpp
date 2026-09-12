@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,9 @@ Vec toCanvas(Vec screen,Vec clientOrigin,double dpi,Vec canvasOrigin);
 enum class Kind : unsigned { Pen=1, Touch=2, Mouse=3 };
 enum class Clock : unsigned { Qpc=1, Milliseconds=2, ReceiptFallback=3 };
 enum class Mode : unsigned { Off=0, Gentle=1, Steady=2, Strong=3 };
+struct ClockCalibration { std::uint64_t origin{}, frequency{}; };
+// Receipt offset is not report cadence. Grossly incompatible clocks are rejected.
+std::optional<double> reportTime(std::uint64_t qpc,ClockCalibration calibration,double receipt);
 const char* modeName(Mode mode);
 const char* kindName(Kind kind);
 
@@ -47,6 +51,7 @@ struct Sample {
     bool mapped{}, contact{}, down{}, up{}, canceled{}, eligible{true};
     // Capture loss is an application marker, not a fabricated device report.
     bool boundary{};
+    bool timingRecovered{}; // Derived-only provenance; never serialized as a report.
 };
 struct Event { double time{}; std::uint32_t code{}; std::string text; };
 struct Session {
@@ -63,11 +68,14 @@ struct Stroke {
 };
 struct Diagnostics {
     std::size_t reports{}, duplicates{}, nonIncreasingTimes{}, gaps{}, invalid{}, boundaries{},limits{};
+    std::size_t recoveredTiming{}, clockOffsetReports{};
 };
 
 // Stateful chronological replay; timestamp equality does not imply duplication.
 class Processor {
 public:
+    explicit Processor(ClockCalibration calibration={}):calibration_(calibration) {}
+    void setClockCalibration(ClockCalibration calibration) { clear(); calibration_=calibration; }
     void consume(const Sample& s);
     void clear();
     const std::vector<Stroke>& strokes() const { return strokes_; }
@@ -78,6 +86,7 @@ private:
     std::map<Key,State> states_;
     std::vector<Stroke> strokes_;
     Diagnostics diagnostics_;
+    ClockCalibration calibration_;
 };
 
 struct Metrics {
@@ -88,6 +97,8 @@ struct Metrics {
     double meanSpeed{},p95Speed{},maxSpeed{},speedDuration{},lastSpeed{};
     bool lastSpeedValid{};
     bool lineDefined{};
+    double localVariationRms{};
+    std::size_t localVariationSamples{};
 };
 enum class MotionStatus { First,Valid,NonIncreasingTime,Gap,ReceiptClock,ClockChanged,PointerChanged,CoordinateSpaceChanged,InvalidData };
 struct Motion {
@@ -104,4 +115,7 @@ Metrics measure(const Stroke& stroke, const std::vector<Vec>& path);
 // Experimental Catmull-Rom comparison only; never replaces the source samples.
 std::vector<Vec> curve(const std::vector<Vec>& p, unsigned subdivisions=8);
 double curveDeviation(const std::vector<Vec>& source, const std::vector<Vec>& fitted, unsigned subdivisions=8);
+// Visual targets only: these must never be passed to Processor::consume.
+constexpr unsigned testCount=9;
+std::vector<std::vector<Vec>> testGuides(unsigned test,double width,double height);
 }

@@ -25,9 +25,10 @@ architecture, Windows version, test output and any warnings before publishing.
 ## Software smoke test after building
 
 1. Launch the portable executable as a normal user; no installer/admin prompt.
-2. Load Session > Synthetic demonstration. Confirm it is labeled artificial and
-   does not accept physical input until a new recording is started.
-3. Switch Off/Gentle/Steady/Strong. Off should display the reported wave unchanged;
+2. Choose Real-pen tests > Diagonal down. Grey targets should appear but the
+   report/stroke count must not increase merely from selecting a test. Draw with
+   your real pen. Use F2/F3 to change test and pace, and verify the event log.
+3. Switch Off/Gentle/Steady/Strong. Off should display your reported path unchanged;
    the filter overlay should change while the blue original remains fixed.
 4. Toggle sample dots and curve overlay; inspect at 1x/2x/4x. Verify returning to
    1x is required before resuming capture.
@@ -48,6 +49,15 @@ architecture, Windows version, test output and any warnings before publishing.
   short to show a complete dash pattern; that is styling, not lost samples.
 - With Off, the two paths coincide and should be drawn once. Hiding Raw while
   leaving Filtered enabled must still show the coincident path.
+- Verify exact first/last measured positions in every filter mode. During live
+  input, inspect the trailing 40 ms revision; do not mistake it for immutable ink.
+  Check right-angle vertices, tiny loops and reversals for loss of intended detail.
+- Open a version-0.1 recording with saved clock calibration and legacy fallback.
+  Check recovered-clock counts; sample CSV must retain original saved timestamps,
+  while motion CSV marks recovered analysis times. Save a copy and compare source
+  numeric fields. Original coordinates must remain identical.
+- Select the stationary-hold test. Hold on a target for 5 seconds at two pressures.
+  Grey targets are reference visuals only, never proof of physical position.
 - Export motion / speed CSV. Verify raw and filtered positions/velocities are
   available together. First samples and unusable intervals must have an explicit
   status and blank speed/velocity fields, never invented zero values.

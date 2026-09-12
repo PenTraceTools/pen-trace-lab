@@ -26,17 +26,21 @@ pt::Sample WindowsInput::base(HWND window,UINT message,const POINTER_INFO& info,
     s.buttonChange=static_cast<std::uint32_t>(info.ButtonChangeType);
     s.historyCount=count; s.advertisedHistoryCount=info.historyCount; s.batchIndex=index; s.receipt=now();
     s.time=s.receipt; s.clock=pt::Clock::ReceiptFallback;
-    if(info.PerformanceCount && frequency_.QuadPart>0) {
-        // Signed subtraction permits samples just before this recording process started.
-        s.time=(static_cast<double>(info.PerformanceCount)-static_cast<double>(start_.QuadPart))/static_cast<double>(frequency_.QuadPart);
+    if(const auto t=pt::reportTime(info.PerformanceCount,calibration(),s.receipt)) {
+        s.time=*t;
         s.clock=pt::Clock::Qpc;
     } else if(info.dwTime) {
         const DWORD age=GetTickCount()-info.dwTime; // unsigned wraparound arithmetic
         if(age<60000) { s.time=s.receipt-static_cast<double>(age)*.001; s.clock=pt::Clock::Milliseconds; }
     }
-    if(s.time>s.receipt+.005 || s.receipt-s.time>60) {
-        log_(s.receipt,0,"Implausible report timestamp; receipt-time fallback used.");
-        s.time=s.receipt; s.clock=pt::Clock::ReceiptFallback;
+    const unsigned warning=s.clock==pt::Clock::ReceiptFallback?2u:
+        s.clock==pt::Clock::Qpc && s.time>s.receipt+.005?1u:0u;
+    if(clockWarnings_.size()<1024 || clockWarnings_.contains(s.device)) {
+        auto& previous=clockWarnings_[s.device];
+        if(warning && !(warning&previous)) log_(s.receipt,0,warning==1?
+            "Report clock ahead of receipt clock; report intervals retained, absolute latency unknown.":
+            "No usable report clock; receipt time retained for replay only, filtering/speed disabled across it.");
+        previous|=warning; // Once per condition/device, not once per report.
     }
     s.kind=info.pointerType==PT_PEN ? pt::Kind::Pen : info.pointerType==PT_TOUCH ? pt::Kind::Touch : pt::Kind::Mouse;
     s.coordinates={info.ptPixelLocation.x,info.ptPixelLocation.y,info.ptPixelLocationRaw.x,info.ptPixelLocationRaw.y,

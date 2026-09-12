@@ -4,10 +4,10 @@ A small native Windows pen/touch recorder and drawing diagnostic. Compare the
 positions Windows reports with filtered polylines and an experimental curve
 renderer, using the **same recorded stroke** for every comparison.
 
-**Status: initial source implementation. Not yet compiled or tested on a physical
-Windows pen device.** Source-only checks are not runtime verification. Do not
-publish binaries as validated until the build/test workflow and hardware checklist
-pass. No executable was built on the source author's current machine.
+**Status: experimental diagnostic, version 0.2.0.** The initial ARM64 version was
+used to collect a real pen recording. This revision addresses its clock-handling
+findings and replaces the lagging comparison filters. See [VALIDATION.md](docs/VALIDATION.md)
+for verification boundaries. No hardware-accuracy or complete wobble-removal claim.
 
 ## Features
 
@@ -17,15 +17,17 @@ pass. No executable was built on the source author's current machine.
 - Reported coordinates, timestamp source, pressure/tilt validity, pointer/device
   identity, contact state and coordinate-mapping context retained in recordings.
 - Distinct pen/finger strokes; no positional filtering in the initial baseline.
-- Off, Gentle, Steady and Strong filter comparisons. Gentle bounds displacement
-  to 1.5 DIPs; this is not a guarantee of true physical accuracy.
+- Off is exact. Gentle, Steady and Strong use local sideways smoothing, with
+  displacement caps of 1.5, 2.5 and 4 DIPs. Endpoints stay measured. The newest
+  40 ms may revise as input arrives; this is not a causal, final-ink algorithm.
 - Straightness RMS/P95/max, filter displacement, interval statistics, endpoint
   displacement and sampled experimental-curve deviation.
 - Report-derived speed and X/Y velocity: last interval, time-weighted mean, P95,
   max, coverage/rejection counts and per-interval CSV export.
 - Guided test prompts, original-sample dots, inspection zoom and stroke selection.
 - Local recording save/load, 1x/4x replay, sample and per-stroke metric CSV export.
-- Synthetic demonstration clearly labeled as artificial data.
+- Real-pen tracing guides, slow/normal/fast labels and stationary-hold targets.
+  Guides are never recorded or used to snap/correct the pen trajectory.
 - Portable packaging for x64 and ARM64, automated core tests and CI configuration.
 
 This is a diagnostic, not a replacement painting application. There is no
@@ -51,7 +53,7 @@ installs prerequisites. Extract the ZIP and run `PenTraceLab.exe` on the target.
 1. Open **Session > Device and test notes**. Enter device, pen, test speed and
    whether a physical guide was used. Notes editing pauses capture; press Space
    afterward to resume.
-2. Leave **Filter > Off**. Choose **Test > Diagonal down**, then draw slowly in
+2. Leave **Filter > Off**. Choose **Real-pen tests > Diagonal down**, then draw slowly in
    both directions. Repeat at normal/fast speed and different screen positions.
 3. Also record horizontal/vertical lines, shallow curves, corners, small writing,
    dots and pen lifts. Use separate files or notes to identify trials.
@@ -69,6 +71,10 @@ position and purple is the optional curve experiment. Select filter 1–3 with b
 View layers enabled to compare the two paths. With Off, the paths coincide and
 are shown once. Dashes are visual styling only; no source points are removed.
 Mouse recording/display is opt-in.
+Grey dashed shapes are **targets for you to trace**, not generated pen strokes.
+F2 selects the next real-pen test; F3 changes the intended pace label. These
+changes are logged during live capture; they do not clear existing strokes.
+Use View > Show only selected stroke to inspect overlapping trials without deletion.
 Hiding finger strokes does not stop their recording. The last 100 strokes plus
 the selected stroke are drawn; all recorded strokes remain available for export.
 
@@ -76,7 +82,7 @@ Keys: Space pause/resume, 0–3 filter, `[`/`]` selected stroke, Z inspection zo
 Ctrl+S save, Ctrl+O open, Ctrl+N new, F1 help. Mouse wheel or Page Up/Down scrolls
 the statistics sidebar. Session > Recent diagnostic events shows the latest log
 entries. Zoom pauses capture and must return
-to 1x before capture resumes. Loaded/demo sessions do not accept new pen data;
+to 1x before capture resumes. Loaded sessions do not accept new pen data;
 start a new recording to draw again.
 
 ## How to interpret the result
@@ -94,6 +100,15 @@ Speed is derived from reported position differences and report timestamps, not
 an independent physical measurement. Digitizer noise can inflate it. Unusable
 intervals have an explicit status and blank CSV velocity/speed values, not a fake
 zero. See [the recording/analysis semantics](docs/RECORDING_FORMAT.md).
+
+Version 0.1 recordings with a valid saved QPC calibration can recover report
+timing in the analysis view. The original `.pentrace` is never rewritten by
+opening/replaying it. The sidebar shows recovered-clock counts. A clock offset
+between report and receipt is not an input-latency measurement.
+
+The portable package also includes a read-only console analyzer:
+`pentrace_analyze.exe recording.pentrace`. It runs the same filters/metrics as
+the GUI and prints a comparison without opening a window or modifying the file.
 
 - [Architecture, findings and electrical/HID limitations](docs/DESIGN.md)
 - [Independent trackers, magnetic overlays and correction-layer feasibility](docs/INDEPENDENT_TRACKING.md)
