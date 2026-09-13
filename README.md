@@ -1,6 +1,6 @@
 # Pen Trace Lab
 
-[Pen Tools overview](https://github.com/alexiokay/pen-tools) · [Shared versioning workflow](https://github.com/alexiokay/pen-tools/blob/main/VERSIONING.md)
+[PenTraceTools organization](https://github.com/PenTraceTools) · [Shared versioning workflow](https://github.com/PenTraceTools/.github/blob/main/VERSIONING.md)
 
 A small native Windows pen/touch recorder and drawing diagnostic. Compare the
 positions Windows reports with filtered polylines, using the **same recorded stroke** for every comparison.
@@ -136,7 +136,7 @@ no remote repository is created or published automatically.
 
 ## Shared filter source
 
-The local candidate now consumes the pinned [pen-stabilizer source library](https://github.com/alexiokay/pen-stabilizer)
+The local candidate now consumes the pinned [pen-stabilizer source library](https://github.com/PenTraceTools/pen-stabilizer)
 in `deps/pen-stabilizer`, shared with InfiniPaint. Run
 `git submodule update --init deps/pen-stabilizer` after pulling. No extra DLL or
 runtime installation is needed. See [SHARED_CORE.md](docs/SHARED_CORE.md).

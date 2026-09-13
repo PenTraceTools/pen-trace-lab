@@ -18,7 +18,7 @@ Implementation adds six independent candidates, equal-scale comparison panels,
 explicit x8 displacement inspection, adjustable local support, multiscale shape
 and lag proxies, versioned settings and all-candidate/sweep CSVs. Core tests add
 comparison invariants and exports. Commit b0bd84c passed GitHub run
-[34715977560](https://github.com/alexiokay/pen-trace-lab/actions/runs/34715977560):
+[34715977560](https://github.com/PenTraceTools/pen-trace-lab/actions/runs/34715977560):
 Linux ASan/UBSan core tests and Windows x64/ARM64 builds with host-x64 tests.
 All 14 core test groups passed; no C++ compiler warnings were found in the logs.
 Minor menu-label/documentation and additional gap-regression follow-ups require
@@ -39,7 +39,7 @@ not a live paint benchmark or latency measurement. See
 
 ## Version 0.2 update (supersedes initial status below)
 
-The public repository is https://github.com/alexiokay/pen-trace-lab. The user ran
+The public repository is https://github.com/PenTraceTools/pen-trace-lab. The user ran
 the initial ARM64 portable app and supplied a real `.pentrace` recording. This
 establishes a successful launch/capture on that device, not full hardware acceptance.
 The initial source-only entries below describe the earlier creation phase.

@@ -1,10 +1,10 @@
 # Shared local-correction core (0.4.1)
 
-[Pen Tools overview](https://github.com/alexiokay/pen-tools) connects the repositories.
+[Pen Tools overview](https://github.com/PenTraceTools) connects the repositories.
 
 PenTraceLab, the InfiniPaint `graphite-ui` integration and
 [upstream proposal #98](https://github.com/ErrorAtLine0/infinipaint/pull/98) consume
-[pen-stabilizer](https://github.com/alexiokay/pen-stabilizer), package 0.1.0,
+[pen-stabilizer](https://github.com/PenTraceTools/pen-stabilizer), package 0.1.0,
 algorithm revision 1, through a Git submodule pinned to
 `adbdce4e902433fcd14fba16e08863f2ec909f79` (v0.1.0). There is no additional
 runtime DLL, executable, service or prerequisite installer.
@@ -45,5 +45,11 @@ accuracy. The executable is built by CI/on the build PC, not this development PC
 
 The app and library are versioned independently. Updating the library repository
 does not update an installed executable or a consumer's pin. See the
-[update workflow](https://github.com/alexiokay/pen-tools/blob/main/VERSIONING.md).
+[update workflow](https://github.com/PenTraceTools/.github/blob/main/VERSIONING.md).
 The upstream PR is a draft proposal, not an already-merged upstream feature.
+
+The shared home is now the [PenTraceTools organization](https://github.com/PenTraceTools).
+Host-specific InfiniPaint pressure/curve replay is documented in
+[BRUSH_PIPELINE.md](https://github.com/alexiokay/infinipaint-Custom/blob/graphite-ui/docs/BRUSH_PIPELINE.md).
+Those width/rendering helpers belong to the drawing host, not the position library;
+the PenTraceLab GUI's existing comparison candidates have not been replaced by them.
