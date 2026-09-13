@@ -10,6 +10,11 @@ can now be compared against identical real pen input, with a side-by-side grid,
 exaggerated difference inspection and parameter-sweep exports. See [VALIDATION.md](docs/VALIDATION.md)
 for verification boundaries. No hardware-accuracy or complete wobble-removal claim.
 
+[Real-pen comparison gallery](docs/comparisons/test6/README.md): selected Surface Pro 11 /
+Metapen M2 strokes, 16 same-input variants, original SVG downloads, exact source revisions
+and a plan for future straightness/detail/latency charts. These are diagnostic previews,
+not full InfiniPaint renderer screenshots or a complete-accuracy benchmark.
+
 ## Features
 
 - Native C++20 / Win32 input, Direct2D drawing and DirectWrite text.
