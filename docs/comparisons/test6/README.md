@@ -7,9 +7,15 @@ are not included. This small selected set is illustrative, not a representative 
 
 ## Open the comparisons
 
+![Measured diagonal correction: shared-axis residuals and cross-track RMS](diagonal-analysis.png)
+
+The orange trace contains the original recorded positions; purple is the corrected
+centerline. The expanded vertical scale makes small ripples visible. This is a
+position-only comparison: both paths preserve pressure and use polyline rendering.
+
 PNG previews are checked into this repository for convenient GitHub viewing. The original,
 unchanged, zoomable SVGs are attached to the [comparison archive](https://github.com/PenTraceTools/pen-trace-lab/releases/tag/comparison-test6-2026-09-13).
-That archive is **diagnostic data, not a PenTraceLab application release**.
+That archive contains **comparison images, not raw recordings or an application release**.
 
 | Recorded stroke (zero-based) | Contact samples | Preview | Original SVG |
 | --- | ---: | --- | --- |
@@ -71,7 +77,7 @@ In particular, **Correction Off is a raw sample-pipeline baseline, not a full up
 screenshot**. The legacy pressure row does not simulate the complete original engine.
 
 Windows reports are not physical ground truth. There is no measured intended path, speed
-classification or percentage accuracy improvement assigned to these examples. Do not infer
+classification or percentage physical-accuracy improvement assigned to these examples. Do not infer
 that every bend is sensor wobble, or generalize these three selected strokes to other hardware.
 
 ## Reproducible provenance
@@ -81,12 +87,44 @@ that every bend is sensor wobble, or generalize these three selected strokes to 
 - Position library: **v0.1.0, algorithm revision 1**, [adbdce4e902433fcd14fba16e08863f2ec909f79](https://github.com/PenTraceTools/pen-stabilizer/tree/adbdce4e902433fcd14fba16e08863f2ec909f79).
 - Replayed locally with the CI-built ARM64 utility; no new local C++ build was performed.
 - The private recording contains 34 strokes; the table identifies the selected indices.
-- [SVG SHA-256 checksums](SHA256SUMS.txt). PNGs are rasterizations of the unchanged SVGs.
+- [SVG SHA-256 checksums](SHA256SUMS.txt). The three grid PNGs are rasterizations of the unchanged SVGs.
+- The new `diagonal-analysis.png` chart uses stroke 5's replayed centerlines, not pixels
+  traced from the preview image. Its source recording and vertex CSV remain private.
 
 Reproduction requires the original recording, deliberately not published here. For your own
 recordings, see the [replay instructions](https://github.com/alexiokay/infinipaint-Custom/blob/graphite-ui/docs/BRUSH_PIPELINE.md#replay-comparisons-on-the-build-pc).
 
-## Future comparison charts
+## Measurement method: the diagonal chart
+
+Stroke 5 has 1,294 contact reports and 1,292 accepted centerline vertices in each
+variant after coincident-point merging. The chart compares correction Off/On with
+preserved pressure and polyline rendering, holding all other parameters fixed.
+
+One total-least-squares (PCA) reference line is fitted to the **continuous raw
+polyline**, weighted by segment length. Its origin is the arc-length-weighted
+centroid and its direction is the dominant covariance eigenvector. That same line
+is used for both variants; the corrected path is not independently refitted.
+
+For signed perpendicular residuals `r0, r1` at a segment's endpoints and segment
+length `L`, its exact squared-error integral is `L * (r0*r0 + r0*r1 + r1*r1) / 3`.
+RMS is the square root of the sum of these integrals divided by total path length.
+Each variant is integrated along its own continuous polyline. This avoids bias from
+uneven report density. A separate numerical midpoint integration (100 subdivisions
+per segment) agrees within 0.00001 DIP; endpoints are unchanged.
+
+| Whole-stroke measurement | Original | Corrected |
+| --- | ---: | ---: |
+| Cross-track RMS (DIP) | 2.312743 | 2.008780 |
+| Maximum absolute residual (DIP) | 8.833127 | 8.042951 |
+| Polyline arc length (DIP) | 683.448314 | 665.328527 |
+
+Relative RMS reduction is `100 * (1 - correctedRMS / rawRMS)` = **13.142955%**.
+This includes broad bowing and endpoint deviation as well as small ripples. It is
+**not an isolated wobble-frequency metric**, an intent-preservation score, or an
+average over the recording. The plot's horizontal coordinate is projection along
+the shared line; its vertical coordinate is the signed residual, in DIP.
+
+## Next comparison charts
 
 Keep **position, pressure and rendering** separate when evaluating improvements:
 
@@ -103,7 +141,9 @@ Keep **position, pressure and rendering** separate when evaluating improvements:
    screen locations. Freeze parameters before evaluating a held-out set; report all trials,
    sample counts and spread rather than selecting the best-looking examples.
 
-No quantitative chart or percentage-improvement claim has been generated from this gallery.
+The chart above supplies a first whole-stroke straightness measurement. Repeated,
+speed-labelled trials and an independent intended-path reference are still needed
+before making broader quality claims.
 
 ## Upstream review scope
 

@@ -10,10 +10,19 @@ can now be compared against identical real pen input, with a side-by-side grid,
 exaggerated difference inspection and parameter-sweep exports. See [VALIDATION.md](docs/VALIDATION.md)
 for verification boundaries. No hardware-accuracy or complete wobble-removal claim.
 
-[Real-pen comparison gallery](docs/comparisons/test6/README.md): selected Surface Pro 11 /
-Metapen M2 strokes, 16 same-input variants, original SVG downloads, exact source revisions
-and a plan for future straightness/detail/latency charts. These are diagnostic previews,
-not full InfiniPaint renderer screenshots or a complete-accuracy benchmark.
+## Real pen, same stroke, correction off / on
+
+![Real recorded diagonal: raw and corrected residuals, with measured straightness error](docs/comparisons/test6/diagonal-analysis.png)
+
+Small ripples are reduced on this selected Surface Pro 11 / Metapen M2 diagonal.
+Whole-stroke cross-track RMS changes from **2.313 to 2.009 DIP (13.1% lower)**.
+This measures straightness about one shared fitted axis, not physical accuracy or
+the percentage of hardware wobble removed. The vertical scale is expanded for inspection.
+
+[Open the visual comparison gallery and measurement method](docs/comparisons/test6/README.md)
+for 16 same-input variants, zoomable SVG images and exact source revisions.
+These are diagnostic replays, not full InfiniPaint renderer screenshots.
+Only comparison images and aggregate measurements are published; the recording stays private.
 
 ## Features
 
